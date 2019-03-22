@@ -447,12 +447,12 @@ namespace etl
     template<typename T> struct dummy {};
     struct internal: TDerived, dummy<int>{};
 
-    static TBase* check(TBase*);
-    template<typename T> static char check(dummy<T>*);
+    static TBase* check_type(TBase*);
+    template<typename T> static char check_type(dummy<T>*);
 
   public:
 
-    static const bool value = (sizeof(check((internal*)0)) == sizeof(TBase*));
+    static const bool value = (sizeof(check_type((internal*)0)) == sizeof(TBase*));
   };
 
   // For when TBase or TDerived is a fundamental type.
