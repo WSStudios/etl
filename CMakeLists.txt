@@ -38,6 +38,8 @@ if (${ETL_PROFILE} STREQUAL DEFAULT)
     endif()
   elseif (CMAKE_CXX_COMPILER_ID MATCHES "TI")
     set(ETL_PROFILE "PROFILE_TICC")
+  elseif (CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
+    set(ETL_PROFILE "PROFILE_CPP11_GENERIC")
 
   else()
     message(FATAL_ERROR "Can't generate default profile for compiler: ${CMAKE_CXX_COMPILER_ID}")
