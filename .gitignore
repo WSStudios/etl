@@ -245,5 +245,9 @@ pip-log.txt
 
 # CMake
 cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
 
 unittest-cpp
