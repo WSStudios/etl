@@ -166,7 +166,7 @@ namespace etl
     //*******************************************
     /// Destructor.
     //*******************************************
-    ~ifsm_state()
+    virtual ~ifsm_state()
     {
     }
 
@@ -1237,7 +1237,7 @@ namespace etl
 
   protected:
       
-    ~fsm_state()
+    virtual ~fsm_state()
     {
     }
 
