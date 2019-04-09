@@ -166,9 +166,7 @@ namespace etl
     //*******************************************
     /// Destructor.
     //*******************************************
-    virtual ~ifsm_state()
-    {
-    }
+    virtual ~ifsm_state() = default;
 
     //*******************************************
     inline etl::fsm& get_fsm_context() const
@@ -178,7 +176,7 @@ namespace etl
 
   private:
 
-    virtual fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message) = 0;
+    //virtual fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message) = 0;
 
     virtual fsm_state_id_t on_enter_state() { return state_id; } // By default, do nothing.
     virtual void on_exit_state() {}  // By default, do nothing.
@@ -367,12 +365,57 @@ namespace etl
     etl::fsm_state_id_t number_of_states; ///< The number of states.
   };
 
+  //  template<typename T>
+
+template <typename T>
+class fsm_event_handler
+{
+public:
+  typedef T event_type;
+  typedef etl::fsm_state_id_t on_event(etl::imessage_router&, const T&);
+  enum
+  {
+    ID = T::ID,
+  };
+};
+
+
+// template<typename Param>
+// struct BaseSingle {
+//   virtual void BaseFoo(Param) {
+//     cout << "Hello from BaseSingle<>::BaseFoo" << endl;
+//   };
+// };
+
+// template<typename... Params>
+// struct Base : public BaseSingle<Params>... {
+//   template<typename T> void Foo(T&& x) {
+//     this->BaseSingle<T>::BaseFoo(forward<T>(x));
+//   }
+// };
+
+// int main() {
+//   Base<string, int, bool> b;
+//   b.Foo(1);
+//   b.Foo(true);
+//   b.Foo(string("ab"));
+// }
+
+
+  template<typename MessageType>
+  struct fsm_state_single
+  {
+    virtual etl::fsm_state_id_t on_event(etl::imessage_router&, const MessageType&) = 0;
+  }; 
+
   //***************************************************************************
   // The definition for all 4 message types.
   //***************************************************************************
-  template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
-            typename T1 = void, typename T2 = void, typename T3 = void, typename T4 = void>
-  class fsm_state : public ifsm_state
+  template <typename TContext, 
+            typename TDerived, 
+            const etl::fsm_state_id_t STATE_ID_,
+            typename... MessageType>
+  class fsm_state : public ifsm_state, public fsm_state_single<etl::imessage>, public fsm_state_single<MessageType>...
   {
   public:
 
@@ -391,199 +434,204 @@ namespace etl
       return static_cast<TContext&>(ifsm_state::get_fsm_context());
     }
 
+    TDerived& underlying() { return static_cast<TDerived&>(*this); }
+
   private:
 
-    virtual ~fsm_state() = default;
-
-    etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
+    template<typename T> etl::fsm_state_id_t process_event(etl::imessage_router&, const T&& x)
     {
-      TDerived& derived = *static_cast<TDerived*>(this);
-      etl::fsm_state_id_t new_state_id;
-      switch (message.message_id)
-      {
-        case T1::ID: new_state_id = derived.on_event(source, static_cast<const T1&>(message)); break;
-        case T2::ID: new_state_id = derived.on_event(source, static_cast<const T2&>(message)); break;
-        case T3::ID: new_state_id = derived.on_event(source, static_cast<const T3&>(message)); break;
-        case T4::ID: new_state_id = derived.on_event(source, static_cast<const T4&>(message)); break;
-        default: new_state_id = derived.on_event_unknown(source, message); break;
-      }
-
-      return new_state_id;
+      return this->fsm_state_single<T>::on_event(std::forward<T>(x));
     }
+
+    // etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
+    // {
+    //   etl::fsm_state_id_t new_state_id;
+    //   switch (message.message_id)
+    //   {
+    //     //case EventHandler::ID: new_state_id = this->underlying().on_event(source, static_cast<const typename EventHandler::event_type&>(message)); break;
+    //     // case T2::ID: new_state_id = this->underlying().on_event(source, static_cast<const T2&>(message)); break;
+    //     // case T3::ID: new_state_id = this->underlying().on_event(source, static_cast<const T3&>(message)); break;
+    //     // case T4::ID: new_state_id = this->underlying().on_event(source, static_cast<const T4&>(message)); break;
+    //     // default: new_state_id = this->underlying().on_event(source, message); break;
+    //   }
+
+    //   return new_state_id;
+    // }
   };
+
 
   //***************************************************************************
   // Specialisation for 3 message types.
   //***************************************************************************
-  template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
-            typename T1, typename T2, typename T3>
-  class fsm_state<TContext, TDerived, STATE_ID_, T1, T2, T3, void> : public ifsm_state
-  {
-  public:
+  // template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
+  //           typename T1, typename T2, typename T3>
+  // class fsm_state<TContext, TDerived, STATE_ID_, T1, T2, T3, void> : public ifsm_state
+  // {
+  // public:
 
-    enum
-    {
-      STATE_ID = STATE_ID_
-    };
+  //   enum
+  //   {
+  //     STATE_ID = STATE_ID_
+  //   };
 
-    fsm_state()
-      : ifsm_state(STATE_ID)
-    {
-    }
+  //   fsm_state()
+  //     : ifsm_state(STATE_ID)
+  //   {
+  //   }
 
-  protected:
+  // protected:
       
-    virtual ~fsm_state() = default;
+  //   virtual ~fsm_state() = default;
 
-    inline TContext& get_fsm_context() const
-    {
-      return static_cast<TContext&>(ifsm_state::get_fsm_context());
-    }
+  //   inline TContext& get_fsm_context() const
+  //   {
+  //     return static_cast<TContext&>(ifsm_state::get_fsm_context());
+  //   }
 
-  private:
+  // private:
 
-    etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
-    {
-      etl::fsm_state_id_t new_state_id;
-      etl::message_id_t event_id = message.message_id;
+  //   etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
+  //   {
+  //     etl::fsm_state_id_t new_state_id;
+  //     etl::message_id_t event_id = message.message_id;
 
-      switch (event_id)
-      {
-        case T1::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T1&>(message)); break;
-        case T2::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T2&>(message)); break;
-        case T3::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T3&>(message)); break;
-        default: new_state_id = static_cast<TDerived*>(this)->on_event_unknown(source, message); break;
-      }
+  //     switch (event_id)
+  //     {
+  //       case T1::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T1&>(message)); break;
+  //       case T2::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T2&>(message)); break;
+  //       case T3::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T3&>(message)); break;
+  //       default: new_state_id = static_cast<TDerived*>(this)->on_event_unknown(source, message); break;
+  //     }
 
-      return new_state_id;
-    }
-  };
+  //     return new_state_id;
+  //   }
+  // };
 
-  //***************************************************************************
-  // Specialisation for 2 message types.
-  //***************************************************************************
-  template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
-            typename T1, typename T2>
-  class fsm_state<TContext, TDerived, STATE_ID_, T1, T2, void, void> : public ifsm_state
-  {
-  public:
+  // //***************************************************************************
+  // // Specialisation for 2 message types.
+  // //***************************************************************************
+  // template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
+  //           typename T1, typename T2>
+  // class fsm_state<TContext, TDerived, STATE_ID_, T1, T2, void, void> : public ifsm_state
+  // {
+  // public:
 
-    enum
-    {
-      STATE_ID = STATE_ID_
-    };
+  //   enum
+  //   {
+  //     STATE_ID = STATE_ID_
+  //   };
 
-    fsm_state()
-      : ifsm_state(STATE_ID)
-    {
-    }
+  //   fsm_state()
+  //     : ifsm_state(STATE_ID)
+  //   {
+  //   }
 
-  protected:
+  // protected:
       
-    virtual ~fsm_state() = default;
+  //   virtual ~fsm_state() = default;
 
 
-    inline TContext& get_fsm_context() const
-    {
-      return static_cast<TContext&>(ifsm_state::get_fsm_context());
-    }
+  //   inline TContext& get_fsm_context() const
+  //   {
+  //     return static_cast<TContext&>(ifsm_state::get_fsm_context());
+  //   }
 
-  private:
+  // private:
 
-    etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
-    {
-      etl::fsm_state_id_t new_state_id;
-      etl::message_id_t event_id = message.message_id;
+  //   etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
+  //   {
+  //     etl::fsm_state_id_t new_state_id;
+  //     etl::message_id_t event_id = message.message_id;
 
-      switch (event_id)
-      {
-        case T1::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T1&>(message)); break;
-        case T2::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T2&>(message)); break;
-        default: new_state_id = static_cast<TDerived*>(this)->on_event_unknown(source, message); break;
-      }
+  //     switch (event_id)
+  //     {
+  //       case T1::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T1&>(message)); break;
+  //       case T2::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T2&>(message)); break;
+  //       default: new_state_id = static_cast<TDerived*>(this)->on_event_unknown(source, message); break;
+  //     }
 
-      return new_state_id;
-    }
-  };
+  //     return new_state_id;
+  //   }
+  // };
 
-  //***************************************************************************
-  // Specialisation for 1 message type.
-  //***************************************************************************
-  template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
-            typename T1>
-  class fsm_state<TContext, TDerived, STATE_ID_, T1, void, void, void> : public ifsm_state
-  {
-  public:
+  // //***************************************************************************
+  // // Specialisation for 1 message type.
+  // //***************************************************************************
+  // template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_, 
+  //           typename T1>
+  // class fsm_state<TContext, TDerived, STATE_ID_, T1, void, void, void> : public ifsm_state
+  // {
+  // public:
 
-    enum
-    {
-      STATE_ID = STATE_ID_
-    };
+  //   enum
+  //   {
+  //     STATE_ID = STATE_ID_
+  //   };
 
-    fsm_state()
-      : ifsm_state(STATE_ID)
-    {
-    }
+  //   fsm_state()
+  //     : ifsm_state(STATE_ID)
+  //   {
+  //   }
 
-  protected:
+  // protected:
       
-    virtual ~fsm_state() = default;
+  //   virtual ~fsm_state() = default;
 
-    inline TContext& get_fsm_context() const
-    {
-      return static_cast<TContext&>(ifsm_state::get_fsm_context());
-    }
+  //   inline TContext& get_fsm_context() const
+  //   {
+  //     return static_cast<TContext&>(ifsm_state::get_fsm_context());
+  //   }
 
-  private:
+  // private:
 
-    etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
-    {
-      etl::fsm_state_id_t new_state_id;
-      etl::message_id_t event_id = message.message_id;
+  //   etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
+  //   {
+  //     etl::fsm_state_id_t new_state_id;
+  //     etl::message_id_t event_id = message.message_id;
 
-      switch (event_id)
-      {
-        case T1::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T1&>(message)); break;
-        default: new_state_id = static_cast<TDerived*>(this)->on_event_unknown(source, message); break;
-      }
+  //     switch (event_id)
+  //     {
+  //       case T1::ID: new_state_id = static_cast<TDerived*>(this)->on_event(source, static_cast<const T1&>(message)); break;
+  //       default: new_state_id = static_cast<TDerived*>(this)->on_event_unknown(source, message); break;
+  //     }
 
-      return new_state_id;
-    }
-  };
+  //     return new_state_id;
+  //   }
+  // };
 
-  //***************************************************************************
-  // Specialisation for 0 message types.
-  //***************************************************************************
-  template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_>
-  class fsm_state<TContext, TDerived, STATE_ID_, void, void, void, void> : public ifsm_state
-  {
-  public:
+  // //***************************************************************************
+  // // Specialisation for 0 message types.
+  // //***************************************************************************
+  // template <typename TContext, typename TDerived, const etl::fsm_state_id_t STATE_ID_>
+  // class fsm_state<TContext, TDerived, STATE_ID_, void, void, void, void> : public ifsm_state
+  // {
+  // public:
 
-    enum
-    {
-      STATE_ID = STATE_ID_
-    };
+  //   enum
+  //   {
+  //     STATE_ID = STATE_ID_
+  //   };
 
-    fsm_state()
-      : ifsm_state(STATE_ID)
-    {
-    }
+  //   fsm_state()
+  //     : ifsm_state(STATE_ID)
+  //   {
+  //   }
   
-  protected:
+  // protected:
       
-    virtual ~fsm_state() = default;
+  //   virtual ~fsm_state() = default;
 
-    inline TContext& get_fsm_context() const
-    {
-      return static_cast<TContext&>(ifsm_state::get_fsm_context());
-    }
-  private:
+  //   inline TContext& get_fsm_context() const
+  //   {
+  //     return static_cast<TContext&>(ifsm_state::get_fsm_context());
+  //   }
+  // private:
 
-    etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
-    {
-      return static_cast<TDerived*>(this)->on_event_unknown(source, message);
-    }
-  };
+  //   etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
+  //   {
+  //     return static_cast<TDerived*>(this)->on_event_unknown(source, message);
+  //   }
+  // };
 }
 
 #undef ETL_FILE

@@ -70,6 +70,7 @@ namespace
   class Start : public etl::message<EventId::START>
   {
   };
+  typedef etl::fsm_event_handler<Start> StartHandler;
 
   //***********************************
   class Stop : public etl::message<EventId::STOP>
@@ -106,6 +107,7 @@ namespace
   class Unsupported : public etl::message<EventId::UNSUPPORTED>
   {
   };
+ 
 
   //***************************************************************************
   // States
@@ -202,28 +204,28 @@ namespace
   public:
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const Start&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const Start&) override
     {
       ++get_fsm_context().startCount;
       return StateId::RUNNING;
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const Recursive&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const Recursive&) override
     {
       get_fsm_context().queue_recursive_message(Start());
       return StateId::IDLE;
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event_unknown(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&) override
     {
       ++get_fsm_context().unknownCount;
       return STATE_ID;
     }
 
     //***********************************
-    etl::fsm_state_id_t on_enter_state()
+    etl::fsm_state_id_t on_enter_state() override
     {
       get_fsm_context().TurnRunningLampOff();
       return StateId::LOCKED;
