@@ -152,6 +152,8 @@ namespace etl
       return state_id;
     }
 
+    virtual const ifsm_state& get_receiver() { return *this; }
+
   protected:
 
     //*******************************************
@@ -262,25 +264,8 @@ namespace etl
 		  }
     }
 
-    //*******************************************
-    /// Top level message handler for the FSM.
-    //*******************************************
-    void receive(const etl::imessage& message)
+    void transition(etl::ifsm_state* p_next_state)
     {
-      static etl::null_message_router nmr;
-      receive(nmr, message);
-    }
-
-    //*******************************************
-    /// Top level message handler for the FSM.
-    //*******************************************
-    void receive(etl::imessage_router& source, const etl::imessage& message)
-    {
-        etl::fsm_state_id_t next_state_id = p_state->process_event(source, message);
-        ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
-
-        etl::ifsm_state* p_next_state = state_list[next_state_id];
-
         // Have we changed state?
         if (p_next_state != p_state)
         {
@@ -289,13 +274,35 @@ namespace etl
             p_state->on_exit_state();
             p_state = p_next_state;
 
-            next_state_id = p_state->on_enter_state();
+            etl::fsm_state_id_t next_state_id = p_state->on_enter_state();
             ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
 
             p_next_state = state_list[next_state_id];
 
           } while (p_next_state != p_state); // Have we changed state again?
         }
+    }
+
+    //*******************************************
+    /// Top level message handler for the FSM.
+    //*******************************************
+    template <typename T>
+    void receive(const T& message)
+    {
+      static etl::null_message_router nmr;
+      receive(nmr, message);
+    }
+
+    //*******************************************
+    /// Top level message handler for the FSM.
+    //*******************************************
+    template <typename T>
+    void receive(etl::imessage_router& source, const T& message)
+    {
+        using handler = typename T::handler_type;
+        etl::fsm_state_id_t next_state_id = static_cast<handler*>(p_state)->on_event(source, message);
+        ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
+        transition(state_list[next_state_id]);
     }
 
     using imessage_router::accepts;
@@ -367,17 +374,17 @@ namespace etl
 
   //  template<typename T>
 
-template <typename T>
-class fsm_event_handler
-{
-public:
-  typedef T event_type;
-  typedef etl::fsm_state_id_t on_event(etl::imessage_router&, const T&);
-  enum
-  {
-    ID = T::ID,
-  };
-};
+// template <typename T>
+// class fsm_event_handler
+// {
+// public:
+//   typedef T event_type;
+//   typedef etl::fsm_state_id_t on_event(etl::imessage_router&, const T&);
+//   enum
+//   {
+//     ID = T::ID,
+//   };
+// };
 
 
 // template<typename Param>
@@ -402,12 +409,6 @@ public:
 // }
 
 
-  template<typename MessageType>
-  struct fsm_state_single
-  {
-    virtual etl::fsm_state_id_t on_event(etl::imessage_router&, const MessageType&) = 0;
-  }; 
-
   //***************************************************************************
   // The definition for all 4 message types.
   //***************************************************************************
@@ -415,7 +416,10 @@ public:
             typename TDerived, 
             const etl::fsm_state_id_t STATE_ID_,
             typename... MessageType>
-  class fsm_state : public ifsm_state, public fsm_state_single<etl::imessage>, public fsm_state_single<MessageType>...
+  class fsm_state : 
+    public ifsm_state,
+    public message_handler<etl::imessage, ifsm_state, etl::fsm_state_id_t>, 
+    public message_handler<MessageType, ifsm_state, etl::fsm_state_id_t>...
   {
   public:
 
@@ -438,10 +442,10 @@ public:
 
   private:
 
-    template<typename T> etl::fsm_state_id_t process_event(etl::imessage_router&, const T&& x)
-    {
-      return this->fsm_state_single<T>::on_event(std::forward<T>(x));
-    }
+    // template<typename T> etl::fsm_state_id_t process_event(etl::imessage_router&, const T&& x)
+    // {
+    //   return this->fsm_state_single<T>::on_event(std::forward<T>(x));
+    // }
 
     // etl::fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message)
     // {

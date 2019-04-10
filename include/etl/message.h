@@ -86,11 +86,22 @@ namespace etl
 #endif
   };
 
+  class imessage_router;
+
+  template<typename MessageType, typename Base, typename ReturnType>
+  struct message_handler : public Base
+  {
+    using this_type = message_handler<MessageType, Base, ReturnType>;
+    virtual ReturnType on_event(imessage_router&, const MessageType&) = 0;
+    const this_type& get_receiver() override { return *this; }
+  }; 
+
   //***************************************************************************
-  template <const etl::message_id_t ID_>
+  template <const etl::message_id_t ID_, typename THandler>
   class message : public imessage
   {
   public:
+    typedef THandler handler_type;
 
     message()
       : imessage(ID_)

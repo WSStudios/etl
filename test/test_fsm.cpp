@@ -66,14 +66,15 @@ namespace
     ETL_END_ENUM_TYPE
   };
 
-  //***********************************
-  class Start : public etl::message<EventId::START>
-  {
-  };
-  typedef etl::fsm_event_handler<Start> StartHandler;
+  class BaseState;
 
   //***********************************
-  class Stop : public etl::message<EventId::STOP>
+  class Start : public etl::message<EventId::START, etl::message_handler<Start, etl::ifsm_state, etl::fsm_state_id_t>>
+  {
+  };
+  
+  //***********************************
+  class Stop : public etl::message<EventId::STOP, etl::message_handler<Stop, etl::ifsm_state, etl::fsm_state_id_t>>
   {
   public:
 
@@ -84,7 +85,7 @@ namespace
   };
 
   //***********************************
-  class SetSpeed : public etl::message<EventId::SET_SPEED>
+  class SetSpeed : public etl::message<EventId::SET_SPEED, etl::message_handler<SetSpeed, etl::ifsm_state, etl::fsm_state_id_t>>
   {
   public:
 
@@ -94,17 +95,17 @@ namespace
   };
 
   //***********************************
-  class Stopped : public etl::message<EventId::STOPPED>
+  class Stopped : public etl::message<EventId::STOPPED, etl::message_handler<Stopped, etl::ifsm_state, etl::fsm_state_id_t>>
   {
   };
 
   //***********************************
-  class Recursive : public etl::message<EventId::RECURSIVE>
+  class Recursive : public etl::message<EventId::RECURSIVE, etl::message_handler<Recursive, etl::ifsm_state, etl::fsm_state_id_t>>
   {
   };
 
   //***********************************
-  class Unsupported : public etl::message<EventId::UNSUPPORTED>
+  class Unsupported : public etl::message<EventId::UNSUPPORTED, etl::message_handler<Unsupported, etl::ifsm_state, etl::fsm_state_id_t>>
   {
   };
  
@@ -263,7 +264,7 @@ namespace
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event_unknown(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&)
     {
       ++get_fsm_context().unknownCount;
       return STATE_ID;
@@ -293,7 +294,7 @@ namespace
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event_unknown(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&)
     {
       ++get_fsm_context().unknownCount;
       return STATE_ID;
@@ -308,7 +309,7 @@ namespace
   public:
 
     //***********************************
-    etl::fsm_state_id_t on_event_unknown(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&)
     {
       ++get_fsm_context().unknownCount;
       return STATE_ID;
