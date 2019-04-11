@@ -26,9 +26,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ******************************************************************************/
 
+#include <utility>
+
 #include "UnitTest++.h"
 
-#include "etl/fsm.h"
+#include "etl/platform.h"
+#include "etl/array.h"
+#include "etl/nullptr.h"
+#include "etl/error_handler.h"
+#include "etl/exception.h"
+#include "etl/user_type.h"
+#include "etl/message_router.h"
+#include "etl/integral_limits.h"
+#include "etl/largest.h"
 #include "etl/enum_type.h"
 #include "etl/container.h"
 #include "etl/packet.h"
@@ -37,7 +47,282 @@ SOFTWARE.
 //#include <iostream>
 
 
-namespace
+namespace etl
+{
+
+  /// Allow alternative type for state id.
+#if !defined(ETL_FSM_STATE_ID_TYPE)
+    typedef uint_least8_t fsm_state_id_t;
+#else
+    typedef ETL_FSM_STATE_ID_TYPE fsm_state_id_t;
+#endif
+
+  // For internal FSM use.
+  typedef typename etl::larger_type<etl::message_id_t>::type fsm_internal_id_t;
+
+  //***************************************************************************
+  /// Base exception class for FSM.
+  //***************************************************************************
+  class fsm_exception : public etl::exception
+  {
+  public:
+
+    fsm_exception(string_type reason_, string_type file_name_, numeric_type line_number_)
+      : etl::exception(reason_, file_name_, line_number_)
+    {
+    }
+  };
+
+  //***************************************************************************
+  /// Exception for null state pointer.
+  //***************************************************************************
+  class fsm_null_state_exception : public etl::fsm_exception
+  {
+  public:
+
+    fsm_null_state_exception(string_type file_name_, numeric_type line_number_)
+      : etl::fsm_exception(ETL_ERROR_TEXT("fsm:null state", ETL_FILE"A"), file_name_, line_number_)
+    {
+    }
+  };
+
+  //***************************************************************************
+  /// Exception for invalid state id.
+  //***************************************************************************
+  class fsm_state_id_exception : public etl::fsm_exception
+  {
+  public:
+
+    fsm_state_id_exception(string_type file_name_, numeric_type line_number_)
+      : etl::fsm_exception(ETL_ERROR_TEXT("fsm:state id", ETL_FILE"B"), file_name_, line_number_)
+    {
+    }
+  };
+
+  //***************************************************************************
+  /// Exception for incompatible state list.
+  //***************************************************************************
+  class fsm_state_list_exception : public etl::fsm_exception
+  {
+  public:
+
+    fsm_state_list_exception(string_type file_name_, numeric_type line_number_)
+      : etl::fsm_exception(ETL_ERROR_TEXT("fsm:state list", ETL_FILE"C"), file_name_, line_number_)
+    {
+    }
+  };
+
+
+
+  //***************************************************************************
+  /// The FSM class.
+  //***************************************************************************
+  template<typename TStateType>
+  class fsm : public etl::imessage_router
+  {
+  public:
+    using TBaseFsm = typename TStateType::MyTFsm;
+
+    //*******************************************
+    /// Constructor.
+    //*******************************************
+    fsm(etl::message_router_id_t id)
+      : imessage_router(id),
+        p_state(nullptr)
+    { }
+
+    //*******************************************
+    /// Set the states for the FSM
+    //*******************************************
+    template <typename TSize>
+    void set_states(TStateType** p_states, TSize size)
+    {
+      state_list       = p_states;
+      number_of_states = etl::fsm_state_id_t(size);
+      ETL_ASSERT((number_of_states > 0), ETL_ERROR(etl::fsm_state_list_exception));
+
+      for (etl::fsm_state_id_t i = 0; i < size; ++i)
+      {
+        ETL_ASSERT((state_list[i] != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
+        state_list[i]->set_fsm_context(static_cast<TBaseFsm&>(*this));
+      }
+    }
+
+    //*******************************************
+    /// Starts the FSM.
+    /// Can only be called once.
+    /// Subsequent calls will do nothing.
+    ///\param call_on_enter_state If will call on_enter_state() for the first state. Default = true.
+    //*******************************************
+    void start(etl::fsm_state_id_t initial_state_id)
+    {
+      ETL_ASSERT(initial_state_id >= 0 && initial_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
+      p_state = nullptr;
+      transition(state_list[initial_state_id]);
+    }
+
+    void transition(TStateType* p_to_state)
+    {
+      // Have we actually changed states?
+      for (TStateType * p_next_state = p_to_state; 
+           p_next_state != p_state;
+           )
+      {
+        if (p_state != nullptr)
+        {
+          p_state->on_exit_state();
+        }
+        p_state = p_next_state;
+
+        etl::fsm_state_id_t next_state_id = p_state->on_enter_state();
+        ETL_ASSERT(next_state_id >= 0 && next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
+        p_next_state = state_list[next_state_id];
+      }
+    }
+
+    //*******************************************
+    /// Top level message handler for the FSM.
+    //*******************************************
+    template <typename T>
+    void receive(const T& message)
+    {
+      static etl::null_message_router nmr;
+      receive(nmr, message);
+    }
+
+    //*******************************************
+    /// Top level message handler for the FSM.
+    //*******************************************
+    template <typename TMessage>
+    void receive(etl::imessage_router& source, const TMessage& message)
+    {
+        etl::fsm_state_id_t next_state_id = p_state->on_event(source, message);
+        ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
+        transition(state_list[next_state_id]);
+    }
+
+    using imessage_router::accepts;
+
+    //*******************************************
+    /// Does this FSM accept the message id?
+    /// Yes, it accepts everything!
+    //*******************************************
+    bool accepts(etl::message_id_t) const
+    {
+      return true;
+    }
+
+    //*******************************************
+    /// Gets the current state id.
+    //*******************************************
+    etl::fsm_state_id_t get_state_id() const
+    {
+      ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
+      return p_state->get_state_id();
+    }
+
+    //*******************************************
+    /// Gets a reference to the current state interface.
+    //*******************************************
+    TStateType& get_state()
+    {
+      ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
+      return *p_state;
+    }
+
+    //*******************************************
+    /// Gets a const reference to the current state interface.
+    //*******************************************
+    const TStateType& get_state() const
+    {
+      ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
+      return *p_state;
+    }
+
+    //*******************************************
+    /// Checks if the FSM has been started.
+    //*******************************************
+    bool is_started() const
+    {
+      return p_state != nullptr;
+    }
+
+    //*******************************************
+    /// Reset the FSM to pre-started state.
+    ///\param call_on_exit_state If true will call on_exit_state() for the current state. Default = false.
+    //*******************************************
+    void reset(bool call_on_exit_state = false)
+    {
+      if ((p_state != nullptr) && call_on_exit_state)
+      {
+        p_state->on_exit_state();
+      }
+
+      p_state = nullptr;
+    }
+
+  private:
+
+    TStateType*    p_state;          ///< A pointer to the current state.
+    TStateType**   state_list;       ///< The list of added states.
+    etl::fsm_state_id_t number_of_states; ///< The number of states.
+  };
+
+
+  //***************************************************************************
+  /// Interface class for FSM states.
+  //***************************************************************************
+  template <typename TFsm, typename TStateBase, typename... MessageType>
+  class fsm_state : 
+    public message_handler<etl::imessage, etl::fsm_state_id_t>, 
+    public message_handler<MessageType, etl::fsm_state_id_t>...
+  {
+  public: 
+    typedef TFsm MyTFsm;
+    friend class fsm<TStateBase>;
+
+    etl::fsm_state_id_t get_state_id() const
+    {
+      return state_id;
+    }
+
+  protected:
+
+    fsm_state(etl::fsm_state_id_t state_id_)
+      : state_id(state_id_),
+        p_context(nullptr)
+    {}
+
+    virtual ~fsm_state() = default;
+    inline TFsm& get_fsm_context() const
+    {
+      return *p_context;
+    }
+
+  private:
+
+    virtual fsm_state_id_t on_enter_state() { return state_id; } // By default, do nothing.
+    virtual void on_exit_state() {}  // By default, do nothing.
+
+    void set_fsm_context(TFsm& context)
+    {
+      p_context = &context;
+    }
+
+    const etl::fsm_state_id_t state_id;
+    TFsm* p_context;
+
+    // Disabled.
+    fsm_state(const fsm_state&);
+    fsm_state& operator =(const fsm_state&);
+  };
+
+
+  }
+
+
+
+namespace test
 {
   const etl::message_router_id_t MOTOR_CONTROL = 0;
 
@@ -69,12 +354,12 @@ namespace
   class BaseState;
 
   //***********************************
-  class Start : public etl::message<EventId::START, etl::message_handler<Start, etl::ifsm_state, etl::fsm_state_id_t>>
+  class Start : public etl::message<EventId::START, etl::message_handler<Start, etl::fsm_state_id_t>>
   {
   };
   
   //***********************************
-  class Stop : public etl::message<EventId::STOP, etl::message_handler<Stop, etl::ifsm_state, etl::fsm_state_id_t>>
+  class Stop : public etl::message<EventId::STOP, etl::message_handler<Stop, etl::fsm_state_id_t>>
   {
   public:
 
@@ -85,7 +370,7 @@ namespace
   };
 
   //***********************************
-  class SetSpeed : public etl::message<EventId::SET_SPEED, etl::message_handler<SetSpeed, etl::ifsm_state, etl::fsm_state_id_t>>
+  class SetSpeed : public etl::message<EventId::SET_SPEED, etl::message_handler<SetSpeed, etl::fsm_state_id_t>>
   {
   public:
 
@@ -95,17 +380,17 @@ namespace
   };
 
   //***********************************
-  class Stopped : public etl::message<EventId::STOPPED, etl::message_handler<Stopped, etl::ifsm_state, etl::fsm_state_id_t>>
+  class Stopped : public etl::message<EventId::STOPPED, etl::message_handler<Stopped, etl::fsm_state_id_t>>
   {
   };
 
   //***********************************
-  class Recursive : public etl::message<EventId::RECURSIVE, etl::message_handler<Recursive, etl::ifsm_state, etl::fsm_state_id_t>>
+  class Recursive : public etl::message<EventId::RECURSIVE, etl::message_handler<Recursive, etl::fsm_state_id_t>>
   {
   };
 
   //***********************************
-  class Unsupported : public etl::message<EventId::UNSUPPORTED, etl::message_handler<Unsupported, etl::ifsm_state, etl::fsm_state_id_t>>
+  class Unsupported : public etl::message<EventId::UNSUPPORTED, etl::message_handler<Unsupported, etl::fsm_state_id_t>>
   {
   };
  
@@ -131,14 +416,52 @@ namespace
     ETL_END_ENUM_TYPE
   };
 
+  template <typename TFsm>
+  class StateBase 
+    : public etl::fsm_state<
+      TFsm,
+      StateBase<TFsm>,
+      Start,
+      Stop,
+      Stopped,
+      SetSpeed,
+      Recursive,
+      Unsupported
+      >
+  {
+  public:
+    using Super = etl::fsm_state<
+      TFsm,
+      StateBase<TFsm>,
+      Start,
+      Stop,
+      Stopped,
+      SetSpeed,
+      Recursive,
+      Unsupported
+      >;
+
+    using etl::message_handler<Start, etl::fsm_state_id_t>::on_event;
+    using etl::message_handler<Stop, etl::fsm_state_id_t>::on_event;
+    using etl::message_handler<Stopped, etl::fsm_state_id_t>::on_event;
+    using etl::message_handler<SetSpeed, etl::fsm_state_id_t>::on_event;
+    using etl::message_handler<Recursive, etl::fsm_state_id_t>::on_event;
+    using etl::message_handler<Unsupported, etl::fsm_state_id_t>::on_event;
+    using etl::message_handler<etl::imessage, etl::fsm_state_id_t>::on_event;
+
+    StateBase(etl::fsm_state_id_t id) : Super(id) {} 
+    //virtual const StateBase& get_receiver() const = 0;
+  };
+
   //***********************************
   // The motor control FSM.
   //***********************************
-  class MotorControl : public etl::fsm
+  class MotorControl : public etl::fsm<StateBase<MotorControl>>
   {
   public:
+    using TStateBase = StateBase<MotorControl>;
 
-    MotorControl(etl::ifsm_state** p_states, size_t size)
+    MotorControl(TStateBase** p_states, size_t size)
       : fsm(MOTOR_CONTROL)
     {
       set_states(p_states, size);
@@ -197,12 +520,22 @@ namespace
     int speed;
   };
 
+  using MotorControlStateBase = StateBase<MotorControl>;
+
   //***********************************
   // The idle state.
   //***********************************
-  class Idle : public etl::fsm_state<MotorControl, Idle, StateId::IDLE, Start, Recursive>
+  class Idle : public MotorControlStateBase
   {
   public:
+    Idle() : StateBase(StateId::IDLE) { }
+
+    //***********************************
+    etl::fsm_state_id_t on_enter_state() override
+    {
+      get_fsm_context().TurnRunningLampOff();
+      return get_state_id();
+    }
 
     //***********************************
     etl::fsm_state_id_t on_event(etl::imessage_router&, const Start&) override
@@ -222,26 +555,28 @@ namespace
     etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&) override
     {
       ++get_fsm_context().unknownCount;
-      return STATE_ID;
-    }
-
-    //***********************************
-    etl::fsm_state_id_t on_enter_state() override
-    {
-      get_fsm_context().TurnRunningLampOff();
-      return StateId::LOCKED;
+      return get_state_id();
     }
   };
 
   //***********************************
   // The running state.
   //***********************************
-  class Running : public etl::fsm_state<MotorControl, Running, StateId::RUNNING, Stop, SetSpeed>
+  class Running : public MotorControlStateBase
   {
   public:
+    Running() : StateBase(StateId::RUNNING) { }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const Stop& event)
+    etl::fsm_state_id_t on_enter_state() override
+    {
+      get_fsm_context().TurnRunningLampOn();
+
+      return get_state_id();
+    }
+
+    //***********************************
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const Stop& event) override
     {
       ++get_fsm_context().stopCount;
 
@@ -256,63 +591,58 @@ namespace
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const SetSpeed& event)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const SetSpeed& event) override
     {
       ++get_fsm_context().setSpeedCount;
       get_fsm_context().SetSpeedValue(event.speed);
-      return STATE_ID;
+      return get_state_id();
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&) override
     {
       ++get_fsm_context().unknownCount;
-      return STATE_ID;
+      return get_state_id();
     }
 
-    //***********************************
-    etl::fsm_state_id_t on_enter_state()
-    {
-      get_fsm_context().TurnRunningLampOn();
-
-      return STATE_ID;
-    }
   };
 
   //***********************************
   // The winding down state.
   //***********************************
-  class WindingDown : public etl::fsm_state<MotorControl, WindingDown, StateId::WINDING_DOWN, Stopped>
+  class WindingDown : public MotorControlStateBase
   {
   public:
+    WindingDown() : StateBase(StateId::WINDING_DOWN) { }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const Stopped&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const Stopped&) override
     {
       ++get_fsm_context().stoppedCount;
       return StateId::IDLE;
     }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&) override
     {
       ++get_fsm_context().unknownCount;
-      return STATE_ID;
+      return get_state_id();
     }
   };
 
   //***********************************
   // The locked state.
   //***********************************
-  class Locked : public etl::fsm_state<MotorControl, Locked, StateId::LOCKED>
+  class Locked : public MotorControlStateBase
   {
   public:
+    Locked() : StateBase(StateId::LOCKED) { }
 
     //***********************************
-    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&)
+    etl::fsm_state_id_t on_event(etl::imessage_router&, const etl::imessage&) override
     {
       ++get_fsm_context().unknownCount;
-      return STATE_ID;
+      return get_state_id();
     }
   };
 
@@ -322,12 +652,10 @@ namespace
   WindingDown windingDown;
   Locked      locked;
 
-  etl::ifsm_state* stateList[StateId::NUMBER_OF_STATES] =
+  MotorControlStateBase* stateList[StateId::NUMBER_OF_STATES] =
   {
     &idle, &running, &windingDown, &locked
   };
-
-  MotorControl motorControl(stateList, etl::size(stateList));
 
   SUITE(test_map)
   {
@@ -336,13 +664,14 @@ namespace
     {
       etl::null_message_router nmr;
 
-      motorControl.reset();
-      motorControl.ClearStatistics();
+        // motorControl.reset();
+        // motorControl.ClearStatistics();
 
-      CHECK(!motorControl.is_started());
+      //CHECK(!motorControl.is_started());
 
       // Start the FSM.
-      motorControl.start(false);
+      MotorControl motorControl(stateList, etl::size(stateList));
+      motorControl.start(StateId::IDLE);
       CHECK(motorControl.is_started());
 
       // Now in Idle state.
@@ -474,13 +803,14 @@ namespace
     {
       etl::null_message_router nmr;
 
-      motorControl.reset();
-      motorControl.ClearStatistics();
+      // motorControl.reset();
+      // motorControl.ClearStatistics();
 
-      CHECK(!motorControl.is_started());
+      // CHECK(!motorControl.is_started());
 
       // Start the FSM.
-      motorControl.start(false);
+      MotorControl motorControl(stateList, etl::size(stateList));
+      motorControl.start(StateId::IDLE);
       CHECK(motorControl.is_started());
 
       // Now in Idle state.
@@ -522,13 +852,14 @@ namespace
     {
       etl::null_message_router nmr;
 
-      motorControl.reset();
-      motorControl.ClearStatistics();
+      // motorControl.reset();
+      // motorControl.ClearStatistics();
 
-      motorControl.messageQueue.clear();
+      // motorControl.messageQueue.clear();
 
       // Start the FSM.
-      motorControl.start(false);
+      MotorControl motorControl(stateList, etl::size(stateList));
+      motorControl.start(StateId::IDLE);
 
       // Now in Idle state.
       // Send Start event.
@@ -557,6 +888,8 @@ namespace
     //*************************************************************************
     TEST(test_fsm_supported)
     {
+      MotorControl motorControl(stateList, etl::size(stateList));
+      motorControl.start(StateId::IDLE);
       CHECK(motorControl.accepts(EventId::SET_SPEED));
       CHECK(motorControl.accepts(EventId::START));
       CHECK(motorControl.accepts(EventId::STOP));
