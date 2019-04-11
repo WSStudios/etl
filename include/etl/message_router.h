@@ -102,13 +102,13 @@ namespace etl
     virtual ~imessage_router() {}
     // virtual void receive(const etl::imessage& message) = 0;
     // virtual void receive(imessage_router& source, const etl::imessage& message) = 0;
-    virtual bool accepts(etl::message_id_t id) const = 0;
+    //virtual bool accepts(etl::message_id_t id) const = 0;
 
-    //********************************************
-    bool accepts(const etl::imessage& msg) const
-    {
-      return accepts(msg.message_id);
-    }
+    // //********************************************
+    // bool accepts(const etl::imessage& msg) const
+    // {
+    //   return accepts(msg.message_id);
+    // }
 
     //********************************************
     etl::message_router_id_t get_message_router_id() const
