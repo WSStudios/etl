@@ -52,7 +52,6 @@ constexpr auto to_integral(E e) -> typename std::underlying_type<E>::type
    return static_cast<typename std::underlying_type<E>::type>(e);
 }
 
-
 namespace etl
 {
 
@@ -251,10 +250,10 @@ namespace etl
 		int32_t number_of_states; ///< The number of states.
 	};
 
-	template<typename MessageType, typename ReturnType>
+	template<typename TMessageType, typename TReturnType>
 	struct message_handler
 	{
-		virtual ReturnType on_event(const MessageType&) { return 0; }
+		virtual TReturnType on_event(const TMessageType&) { return static_cast<TReturnType>(0); }
 	}; 
 
 	// -----------------------------------------
@@ -338,6 +337,7 @@ namespace test
 		LOCKED,
 		NUMBER_OF_STATES
 	};
+
 
 	class BaseState;
 
@@ -633,8 +633,8 @@ namespace test
 
 			// Now in Running state.
 
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(0, motorControl.setSpeedCount);
@@ -648,8 +648,8 @@ namespace test
 			motorControl.receive(Start());
 			motorControl.receive(Stopped());
 
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(0, motorControl.setSpeedCount);
@@ -664,8 +664,8 @@ namespace test
 
 			// Still in Running state.
 
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(1, motorControl.setSpeedCount);
@@ -680,8 +680,8 @@ namespace test
 
 			// Now in WindingDown state.
 
-			CHECK_EQUAL(StateId::WINDING_DOWN, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::WINDING_DOWN, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(1, motorControl.setSpeedCount);
@@ -696,8 +696,8 @@ namespace test
 			motorControl.receive(Stop());
 			motorControl.receive(SetSpeed(100));
 
-			CHECK_EQUAL(StateId::WINDING_DOWN, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::WINDING_DOWN, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(1, motorControl.setSpeedCount);
@@ -711,8 +711,8 @@ namespace test
 			motorControl.receive(Stopped());
 
 			// Now in Locked state via Idle state.
-			CHECK_EQUAL(StateId::LOCKED, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::LOCKED, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(false, motorControl.isLampOn);
 			CHECK_EQUAL(1, motorControl.setSpeedCount);
@@ -743,8 +743,8 @@ namespace test
 
 			// Now in Running state.
 
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(0, motorControl.setSpeedCount);
@@ -758,8 +758,8 @@ namespace test
 			motorControl.receive(Stop(true));
 
 			// Now in Locked state via Idle state.
-			CHECK_EQUAL(StateId::LOCKED, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::LOCKED, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(false, motorControl.isLampOn);
 			CHECK_EQUAL(0, motorControl.setSpeedCount);
@@ -792,8 +792,8 @@ namespace test
 
 			// Now in Running state.
 
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state_id()));
-			CHECK_EQUAL(StateId::RUNNING, int(motorControl.get_state().get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
 			CHECK_EQUAL(0, motorControl.setSpeedCount);
