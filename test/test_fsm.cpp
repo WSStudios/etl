@@ -30,6 +30,8 @@
 
 #include "UnitTest++.h"
 
+#undef ETL_THROW_EXCEPTIONS
+
 #include "etl/platform.h"
 #include "etl/array.h"
 #include "etl/nullptr.h"
@@ -176,6 +178,7 @@ namespace etl
 					p_state->on_exit_state();
 				}
 				p_state = p_next_state;
+				ETL_ASSERT((p_state != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
 
 				TStateId next_state_id = p_state->on_enter_state();
 				//ETL_ASSERT(next_state_id >= 0 && next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
@@ -250,18 +253,22 @@ namespace etl
 		int32_t number_of_states; ///< The number of states.
 	};
 
-	template<typename TMessageType, typename TReturnType>
+	template<typename TMessageType, typename TReturnType, TReturnType defaultValue>
 	struct message_handler
 	{
-		virtual TReturnType on_event(const TMessageType&) { return static_cast<TReturnType>(0); }
+		virtual TReturnType on_event(const TMessageType&) { return defaultValue; }
 	}; 
 
 	// -----------------------------------------
 	/// Interface class for FSM states.
 	// -----------------------------------------
-	template <typename TFsm, typename TStateBase, typename TStateId, typename... MessageType>
-	class fsm_state : 
-		public message_handler<MessageType, TStateId>...
+	template <
+		typename TFsm, 
+		typename TStateBase,
+		typename TStateId,
+		TStateId error_state_id,
+		typename... MessageType>
+	class fsm_state : public message_handler<MessageType, TStateId, error_state_id>...
 	{
 	public: 
 		typedef TFsm MyTFsm;
@@ -335,6 +342,7 @@ namespace test
 		RUNNING,
 		WINDING_DOWN,
 		LOCKED,
+		ERROR,
 		NUMBER_OF_STATES
 	};
 
@@ -342,12 +350,12 @@ namespace test
 	class BaseState;
 
 	// -----------------------------------------
-	class Start : public etl::message<etl::message_handler<Start, StateId>>
+	class Start : public etl::message<etl::message_handler<Start, StateId, StateId::ERROR>>
 	{
 	};
 	
 	// -----------------------------------------
-	class Stop : public etl::message<etl::message_handler<Stop, StateId>>
+	class Stop : public etl::message<etl::message_handler<Stop, StateId, StateId::ERROR>>
 	{
 	public:
 
@@ -358,7 +366,7 @@ namespace test
 	};
 
 	// -----------------------------------------
-	class SetSpeed : public etl::message<etl::message_handler<SetSpeed, StateId>>
+	class SetSpeed : public etl::message<etl::message_handler<SetSpeed, StateId, StateId::ERROR>>
 	{
 	public:
 
@@ -368,17 +376,17 @@ namespace test
 	};
 
 	// -----------------------------------------
-	class Stopped : public etl::message<etl::message_handler<Stopped, StateId>>
+	class Stopped : public etl::message<etl::message_handler<Stopped, StateId, StateId::ERROR>>
 	{
 	};
 
 	// -----------------------------------------
-	class Recursive : public etl::message<etl::message_handler<Recursive, StateId>>
+	class Recursive : public etl::message<etl::message_handler<Recursive, StateId, StateId::ERROR>>
 	{
 	};
 
 	// -----------------------------------------
-	class Unsupported : public etl::message<etl::message_handler<Unsupported, StateId>>
+	class Unsupported : public etl::message<etl::message_handler<Unsupported, StateId, StateId::ERROR>>
 	{
 	};
  
@@ -393,6 +401,7 @@ namespace test
 			TFsm,
 			StateBase<TFsm>,
 			StateId,
+			StateId::ERROR,
 			Start,
 			Stop,
 			Stopped,
@@ -406,6 +415,7 @@ namespace test
 			TFsm,
 			StateBase<TFsm>,
 			StateId,
+			StateId::ERROR,
 			Start,
 			Stop,
 			Stopped,
@@ -414,12 +424,12 @@ namespace test
 			Unsupported
 			>;
 
-		using etl::message_handler<Start, StateId>::on_event;
-		using etl::message_handler<Stop, StateId>::on_event;
-		using etl::message_handler<Stopped, StateId>::on_event;
-		using etl::message_handler<SetSpeed, StateId>::on_event;
-		using etl::message_handler<Recursive, StateId>::on_event;
-		using etl::message_handler<Unsupported, StateId>::on_event;
+		using etl::message_handler<Start, StateId, StateId::ERROR>::on_event;
+		using etl::message_handler<Stop, StateId, StateId::ERROR>::on_event;
+		using etl::message_handler<Stopped, StateId, StateId::ERROR>::on_event;
+		using etl::message_handler<SetSpeed, StateId, StateId::ERROR>::on_event;
+		using etl::message_handler<Recursive, StateId, StateId::ERROR>::on_event;
+		using etl::message_handler<Unsupported, StateId, StateId::ERROR>::on_event;
 		//using etl::message_handler<etl::imessage, StateId>::on_event;
 
 		StateBase(StateId id) : Super(id) {} 
@@ -571,15 +581,28 @@ namespace test
 		Locked() : StateBase(StateId::LOCKED) { }
 	};
 
+	class Error : public MotorControlStateBase
+	{
+	public:
+		Error() : StateBase(StateId::ERROR) {}
+		StateId on_enter_state() override
+		{
+			printf("Error state entered!!\n");
+			return get_state_id();
+		}
+	};
+
+
 	// The states.
 	Idle        idle;
 	Running     running;
 	WindingDown windingDown;
 	Locked      locked;
+	Error 		error;
 
 	MotorControlStateBase* stateList[] =
 	{
-		&idle, &running, &windingDown, &locked
+		&idle, &running, &windingDown, &locked, &error
 	};
 
 	SUITE(test_map)
@@ -652,7 +675,7 @@ namespace test
 			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
+			CHECK_EQUAL(0, motorControl.setSpeedCount); 
 			CHECK_EQUAL(0, motorControl.speed);
 			CHECK_EQUAL(1, motorControl.startCount);
 			CHECK_EQUAL(0, motorControl.stopCount);
@@ -722,6 +745,7 @@ namespace test
 			CHECK_EQUAL(1, motorControl.stoppedCount);
 			CHECK_EQUAL(8, motorControl.unknownCount);
 		}
+
 
 		//*************************************************************************
 		TEST(test_fsm_emergency_stop)
