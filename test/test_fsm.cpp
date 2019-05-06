@@ -276,7 +276,7 @@ namespace etl
 		typename TStateBase,
 		typename TStateId,
 		typename THandlers>
-	class fsm_state : public THandlers
+	class fsm_state : public THandlers // , public message_handler<>
 	{
 	public: 
 		typedef TFsm MyTFsm;
@@ -473,7 +473,7 @@ namespace test
 		int speed;
 	};
 
-	using MotorControlStateBase = StateBase<MotorControl>;
+	using MotorControlStateBase = MotorControl::TStateBase;
 
 	//***********************************
 	// The idle state.
@@ -601,23 +601,25 @@ namespace test
 
 			//CHECK(!motorControl.is_started());
 
-			// Start the FSM.
-			MotorControl motorControl(stateList, etl::size(stateList));
-			motorControl.start(StateId::IDLE);
-			CHECK(motorControl.is_started());
+			{
+				// Start the FSM.
+				MotorControl motorControl(stateList, etl::size(stateList));
+				motorControl.start(StateId::IDLE);
+				CHECK(motorControl.is_started());
 
-			// Now in Idle state.
+				// Now in Idle state.
 
-			CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state().get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state().get_state_id()));
 
-			CHECK_EQUAL(false, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(0, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(0, motorControl.unknownCount);
+				CHECK_EQUAL(false, motorControl.isLampOn);
+				CHECK_EQUAL(0, motorControl.setSpeedCount);
+				CHECK_EQUAL(0, motorControl.speed);
+				CHECK_EQUAL(0, motorControl.startCount);
+				CHECK_EQUAL(0, motorControl.stopCount);
+				CHECK_EQUAL(0, motorControl.stoppedCount);
+				CHECK_EQUAL(0, motorControl.unknownCount);
+			}
 
 			// Send unhandled events.
 			motorControl.receive(Stop());
