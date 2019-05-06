@@ -135,17 +135,11 @@ namespace etl
 		//*******************************************
 		/// Constructor.
 		//*******************************************
-		fsm() : p_state(nullptr)
-		{ }
-
-		//*******************************************
-		/// Set the states for the FSM
-		//*******************************************
-		template <typename TSize>
-		void set_states(TStateType** p_states, TSize size)
+		fsm(TStateId initial_state_id, TStateType** p_states, size_t size)
+			: p_state(nullptr)
+			, state_list(p_states)
+			, number_of_states(size)
 		{
-			state_list       = p_states;
-			number_of_states = size;
 			ETL_ASSERT((number_of_states > 0), ETL_ERROR(etl::fsm_state_list_exception));
 
 			for (int32_t i = 0; i < size; ++i)
@@ -153,18 +147,8 @@ namespace etl
 				ETL_ASSERT((state_list[i] != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
 				state_list[i]->set_fsm_context(static_cast<TBaseFsm&>(*this));
 			}
-		}
 
-		//*******************************************
-		/// Starts the FSM.
-		/// Can only be called once.
-		/// Subsequent calls will do nothing.
-		///\param call_on_enter_state If will call on_enter_state() for the first state. Default = true.
-		//*******************************************
-		void start(TStateId initial_state_id)
-		{
-			//ETL_ASSERT(initial_state_id >= 0 && initial_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
-			p_state = nullptr;
+			// start state
 			transition(state_list[to_integral(initial_state_id)]);
 		}
 
@@ -225,27 +209,19 @@ namespace etl
 			return *p_state;
 		}
 
-		//*******************************************
-		/// Checks if the FSM has been started.
-		//*******************************************
-		bool is_started() const
-		{
-			return p_state != nullptr;
-		}
+		// //*******************************************
+		// /// Reset the FSM to pre-started state.
+		// ///\param call_on_exit_state If true will call on_exit_state() for the current state. Default = false.
+		// //*******************************************
+		// void reset(bool call_on_exit_state = false)
+		// {
+		// 	if ((p_state != nullptr) && call_on_exit_state)
+		// 	{
+		// 		p_state->on_exit_state();
+		// 	}
 
-		//*******************************************
-		/// Reset the FSM to pre-started state.
-		///\param call_on_exit_state If true will call on_exit_state() for the current state. Default = false.
-		//*******************************************
-		void reset(bool call_on_exit_state = false)
-		{
-			if ((p_state != nullptr) && call_on_exit_state)
-			{
-				p_state->on_exit_state();
-			}
-
-			p_state = nullptr;
-		}
+		// 	p_state = nullptr;
+		// }
 
 	private:
 
@@ -426,50 +402,34 @@ namespace test
 	class MotorControl : public etl::fsm<StateBase<MotorControl>, StateId>
 	{
 	public:
+		using Super = etl::fsm<StateBase<MotorControl>, StateId>;
 		using TStateBase = StateBase<MotorControl>;
 
-		MotorControl(TStateBase** p_states, size_t size)
-		{
-			set_states(p_states, size);
-			ClearStatistics();
-		}
+		const static int kRunningSpeed = 10;
 
-		//***********************************
-		void ClearStatistics()
-		{
-			startCount = 0;
-			stopCount = 0;
-			setSpeedCount = 0;
-			unknownCount = 0;
-			stoppedCount = 0;
-			isLampOn = false;
-			speed = 0;
-		}
+		MotorControl(TStateBase** p_states, size_t size)
+			: Super(StateId::IDLE, p_states, size)
+			, isLampOn(false)
+			, desiredSpeed(0)
+			, speed(0)
+		{ }
 
 		//***********************************
 		void SetSpeedValue(int speed_)
 		{
+			desiredSpeed = speed_;
 			speed = speed_;
 		}
 
 		//***********************************
-		void TurnRunningLampOn()
+		void SetRunning(bool on)
 		{
-			isLampOn = true;
+			isLampOn = on;
+			SetSpeedValue(on ? kRunningSpeed : 0);
 		}
 
-		//***********************************
-		void TurnRunningLampOff()
-		{
-			isLampOn = false;
-		}
-
-		int startCount;
-		int stopCount;
-		int setSpeedCount;
-		int unknownCount;
-		int stoppedCount;
 		bool isLampOn;
+		int desiredSpeed;
 		int speed;
 	};
 
@@ -486,14 +446,12 @@ namespace test
 		//***********************************
 		StateId on_enter_state() override
 		{
-			get_fsm_context().TurnRunningLampOff();
 			return get_state_id();
 		}
 
 		//***********************************
 		StateId on_event(const Start&) override
 		{
-			++get_fsm_context().startCount;
 			return StateId::RUNNING;
 		}
 	};
@@ -509,16 +467,13 @@ namespace test
 		//***********************************
 		StateId on_enter_state() override
 		{
-			get_fsm_context().TurnRunningLampOn();
-
+			get_fsm_context().SetRunning(true);
 			return get_state_id();
 		}
 
 		//***********************************
 		StateId on_event(const Stop& event) override
 		{
-			++get_fsm_context().stopCount;
-
 			if (event.isEmergencyStop)
 			{
 				return StateId::IDLE;
@@ -532,11 +487,15 @@ namespace test
 		//***********************************
 		StateId on_event(const SetSpeed& event) override
 		{
-			++get_fsm_context().setSpeedCount;
 			get_fsm_context().SetSpeedValue(event.speed);
 			return get_state_id();
 		}
 
+		//***********************************
+		void on_exit_state() override
+		{
+			get_fsm_context().SetRunning(false);
+		}
 	};
 
 	//***********************************
@@ -550,7 +509,6 @@ namespace test
 		//***********************************
 		StateId on_event(const Stopped&) override
 		{
-			++get_fsm_context().stoppedCount;
 			return StateId::IDLE;
 		}
 
@@ -594,242 +552,85 @@ namespace test
 		//*************************************************************************
 		TEST(test_fsm)
 		{
-			//etl::null_message_router nmr;
-
-				// motorControl.reset();
-				// motorControl.ClearStatistics();
-
-			//CHECK(!motorControl.is_started());
-
+			// Test starting
 			{
 				// Start the FSM.
 				MotorControl motorControl(stateList, etl::size(stateList));
-				motorControl.start(StateId::IDLE);
-				CHECK(motorControl.is_started());
 
 				// Now in Idle state.
-
 				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state_id()));
 				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state().get_state_id()));
 
 				CHECK_EQUAL(false, motorControl.isLampOn);
-				CHECK_EQUAL(0, motorControl.setSpeedCount);
 				CHECK_EQUAL(0, motorControl.speed);
-				CHECK_EQUAL(0, motorControl.startCount);
-				CHECK_EQUAL(0, motorControl.stopCount);
-				CHECK_EQUAL(0, motorControl.stoppedCount);
-				CHECK_EQUAL(0, motorControl.unknownCount);
 			}
 
-			// Send unhandled events.
-			motorControl.receive(Stop());
-			motorControl.receive(Stopped());
-			motorControl.receive(SetSpeed(10));
+			// Test unhandled events.
+			{
+				// Start the FSM.
+				MotorControl motorControl(stateList, etl::size(stateList));
 
-			CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(motorControl.get_state().get_state_id()));
+				motorControl.receive(Stop());
 
-			CHECK_EQUAL(false, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(0, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(3, motorControl.unknownCount);
+				CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(motorControl.get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(motorControl.get_state().get_state_id()));
 
-			// Send Start event.
-			motorControl.receive(Start());
+				CHECK_EQUAL(false, motorControl.isLampOn);
+				CHECK_EQUAL(0, motorControl.speed);
+			}
 
-			// Now in Running state.
+			// test starting
+			{
+				// Start the FSM.
+				MotorControl motorControl(stateList, etl::size(stateList));
 
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
+				// Send Start event.
+				motorControl.receive(Start());
 
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(3, motorControl.unknownCount);
+				// Now in Running state.
 
-			// Send unhandled events.
-			motorControl.receive(Start());
-			motorControl.receive(Stopped());
+				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
+				CHECK_EQUAL(true, motorControl.isLampOn);
+				// CHECK_EQUAL(0, motorControl.speed);
+			}
 
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount); 
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(5, motorControl.unknownCount);
+			// test starting, setting speed
+			{
+				// Start the FSM.
+				MotorControl motorControl(stateList, etl::size(stateList));
 
-			// Send SetSpeed event.
-			motorControl.receive(SetSpeed(100));
+				// Send Start event.
+				motorControl.receive(Start());
 
-			// Still in Running state.
+				int speed = 2*MotorControl::kRunningSpeed;
+				motorControl.receive(SetSpeed(speed));
 
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
+				// Now in Running state.
+				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(1, motorControl.setSpeedCount);
-			CHECK_EQUAL(100, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(5, motorControl.unknownCount);
+				CHECK_EQUAL(true, motorControl.isLampOn);
+				CHECK_EQUAL(speed, motorControl.speed);
+			}
 
-			// Send Stop event.
-			motorControl.receive(Stop());
+			// test starting, stopping
+			{
+				// Start the FSM.
+				MotorControl motorControl(stateList, etl::size(stateList));
 
-			// Now in WindingDown state.
+				// Send Start event.
+				motorControl.receive(Start());
+				motorControl.receive(Stop());
 
-			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
+				// Now in WindingDown state.
+				CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
 
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(1, motorControl.setSpeedCount);
-			CHECK_EQUAL(100, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(1, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(5, motorControl.unknownCount);
-
-			// Send unhandled events.
-			motorControl.receive(Start());
-			motorControl.receive(Stop());
-			motorControl.receive(SetSpeed(100));
-
-			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
-
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(1, motorControl.setSpeedCount);
-			CHECK_EQUAL(100, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(1, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(8, motorControl.unknownCount);
-
-			// Send Stopped event.
-			motorControl.receive(Stopped());
-
-			// Now in Locked state via Idle state.
-			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state().get_state_id()));
-
-			CHECK_EQUAL(false, motorControl.isLampOn);
-			CHECK_EQUAL(1, motorControl.setSpeedCount);
-			CHECK_EQUAL(100, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(1, motorControl.stopCount);
-			CHECK_EQUAL(1, motorControl.stoppedCount);
-			CHECK_EQUAL(8, motorControl.unknownCount);
+				CHECK_EQUAL(false, motorControl.isLampOn);
+				CHECK_EQUAL(0, motorControl.speed);
+			}
 		}
-
-
-		//*************************************************************************
-		TEST(test_fsm_emergency_stop)
-		{
-			// motorControl.reset();
-			// motorControl.ClearStatistics();
-
-			// CHECK(!motorControl.is_started());
-
-			// Start the FSM.
-			MotorControl motorControl(stateList, etl::size(stateList));
-			motorControl.start(StateId::IDLE);
-			CHECK(motorControl.is_started());
-
-			// Now in Idle state.
-
-			// Send Start event.
-			motorControl.receive(Start());
-
-			// Now in Running state.
-
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
-
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(0, motorControl.unknownCount);
-
-			// Send emergency Stop event.
-			motorControl.receive(Stop(true));
-
-			// Now in Locked state via Idle state.
-			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::LOCKED), to_integral(motorControl.get_state().get_state_id()));
-
-			CHECK_EQUAL(false, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(1, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(0, motorControl.unknownCount);
-		}
-
-		//*************************************************************************
-		TEST(test_fsm_recursive_event)
-		{
-			// motorControl.reset();
-			// motorControl.ClearStatistics();
-
-			// motorControl.messageQueue.clear();
-
-			// Start the FSM.
-			MotorControl motorControl(stateList, etl::size(stateList));
-			motorControl.start(StateId::IDLE);
-
-			// Now in Idle state.
-			// Send Start event.
-			//motorControl.receive(Recursive());
-
-			// Send the queued message.
-			// motorControl.receive(motorControl.messageQueue.front().get());
-			// motorControl.messageQueue.pop();
-
-			// Now in Running state.
-
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
-			CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
-
-			CHECK_EQUAL(true, motorControl.isLampOn);
-			CHECK_EQUAL(0, motorControl.setSpeedCount);
-			CHECK_EQUAL(0, motorControl.speed);
-			CHECK_EQUAL(1, motorControl.startCount);
-			CHECK_EQUAL(0, motorControl.stopCount);
-			CHECK_EQUAL(0, motorControl.stoppedCount);
-			CHECK_EQUAL(0, motorControl.unknownCount);
-		}
-
-		//*************************************************************************
-		// TEST(test_fsm_supported)
-		// {
-		//   MotorControl motorControl(stateList, etl::size(stateList));
-		//   motorControl.start(StateId::IDLE);
-		//   CHECK(motorControl.accepts(EventId::SET_SPEED));
-		//   CHECK(motorControl.accepts(EventId::START));
-		//   CHECK(motorControl.accepts(EventId::STOP));
-		//   CHECK(motorControl.accepts(EventId::STOPPED));
-		//   CHECK(motorControl.accepts(EventId::UNSUPPORTED));
-
-		//   CHECK(motorControl.accepts(SetSpeed(0)));
-		//   CHECK(motorControl.accepts(Start()));
-		//   CHECK(motorControl.accepts(Stop()));
-		//   CHECK(motorControl.accepts(Stopped()));
-		//   CHECK(motorControl.accepts(Unsupported()));
-		// }
 	};
 }
