@@ -27,6 +27,7 @@
 //  -----------------------------------------
 
 #include <utility>
+#include <array>
 
 #include "UnitTest++.h"
 
@@ -53,6 +54,22 @@ constexpr auto to_integral(E e) -> typename std::underlying_type<E>::type
 {
    return static_cast<typename std::underlying_type<E>::type>(e);
 }
+
+template <typename... Ts>
+struct largest_type;
+
+template <typename T>
+struct largest_type<T>
+{
+	using type = T;
+};
+
+template <typename T, typename U, typename... Ts>
+struct largest_type<T, U, Ts...>
+{
+	using type = typename largest_type<typename std::conditional<(sizeof(U) <= sizeof(T)), T, U>::type, Ts...>::type;
+};
+
 
 namespace etl
 {
@@ -126,32 +143,23 @@ namespace etl
 	// -----------------------------------------
 	/// The FSM class.
 	// -----------------------------------------
-	template<typename TStateType, typename TStateId>
+	template<
+		typename TFsm,
+		typename TStateType,
+		typename TStateFactory>
 	class fsm
 	{
 	public:
-		using TBaseFsm = typename TStateType::MyTFsm;
-
 		//*******************************************
-		/// Constructor.
-		//*******************************************
-		fsm(TStateId initial_state_id, TStateType** p_states, size_t size)
-			: p_state(nullptr)
-			, state_list(p_states)
-			, number_of_states(size)
+		fsm(TStateFactory& factory_, TStateType * pInitialState)
+			: factory(factory_)
+			, p_state(nullptr)
 		{
-			ETL_ASSERT((number_of_states > 0), ETL_ERROR(etl::fsm_state_list_exception));
-
-			for (int32_t i = 0; i < size; ++i)
-			{
-				ETL_ASSERT((state_list[i] != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
-				state_list[i]->set_fsm_context(static_cast<TBaseFsm&>(*this));
-			}
-
 			// start state
-			transition(state_list[to_integral(initial_state_id)]);
+			transition(pInitialState);
 		}
 
+		//*******************************************
 		void transition(TStateType* p_to_state)
 		{
 			// Have we actually changed states?
@@ -164,44 +172,19 @@ namespace etl
 				p_state = p_next_state;
 				ETL_ASSERT((p_state != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
 
-				TStateId next_state_id = p_state->on_enter_state();
-				//ETL_ASSERT(next_state_id >= 0 && next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
-				p_next_state = state_list[to_integral(next_state_id)];
+				p_next_state = p_state->on_enter_state();
 			}
 		}
 
-		//*******************************************
-		/// Top level message handler for the FSM.
 		//*******************************************
 		template <typename TMessage>
 		void receive(const TMessage& message)
 		{
 			using handler_type = typename TMessage::handler_type;
-			TStateId next_state_id = static_cast<handler_type*>(p_state)->on_event(message);
-			//ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
-			transition(state_list[to_integral(next_state_id)]);
+			TStateType * next_state = static_cast<handler_type*>(p_state)->on_event(message);
+			transition(next_state);
 		}
 
-		//*******************************************
-		/// Gets the current state id.
-		//*******************************************
-		TStateId get_state_id() const
-		{
-			ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
-			return p_state->get_state_id();
-		}
-
-		//*******************************************
-		/// Gets a reference to the current state interface.
-		//*******************************************
-		TStateType& get_state()
-		{
-			ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
-			return *p_state;
-		}
-
-		//*******************************************
-		/// Gets a const reference to the current state interface.
 		//*******************************************
 		const TStateType& get_state() const
 		{
@@ -209,68 +192,45 @@ namespace etl
 			return *p_state;
 		}
 
-		// //*******************************************
-		// /// Reset the FSM to pre-started state.
-		// ///\param call_on_exit_state If true will call on_exit_state() for the current state. Default = false.
-		// //*******************************************
-		// void reset(bool call_on_exit_state = false)
-		// {
-		// 	if ((p_state != nullptr) && call_on_exit_state)
-		// 	{
-		// 		p_state->on_exit_state();
-		// 	}
-
-		// 	p_state = nullptr;
-		// }
 
 	private:
 
-		TStateType*    p_state;          ///< A pointer to the current state.
-		TStateType**   state_list;       ///< The list of added states.
-		int32_t number_of_states; ///< The number of states.
+		TStateFactory factory;
+		TStateType * p_state;
 	};
 
-	template<typename TMessageType, typename TReturnType, TReturnType defaultValue>
+	template<typename TMessageType>
 	struct message_handler
 	{
-		virtual TReturnType on_event(const TMessageType&) { return defaultValue; }
+		//using MyType = message_handler<typename TMessageType>;
+		virtual message_handler * on_event(const TMessageType&) { return this; }
 	}; 
-
-
-	template <
-		typename TStateId,
-		TStateId error_state_id,
-		typename... MessageType>
-	class fsm_state_handlers : public message_handler<MessageType, TStateId, error_state_id>...
-	{};
 
 	// -----------------------------------------
 	/// Interface class for FSM states.
 	// -----------------------------------------
+	template <typename... MessageType>
+	class ifsm_state : public message_handler<MessageType>...
+	{
+		//using MyType = ;
+	public:
+		virtual ifsm_state * on_enter_state() = 0;
+		virtual void on_exit_state() = 0;
+		virtual ifsm_state * get_state_id() const = 0;
+	};
+
 	template <
 		typename TFsm, 
-		typename TStateBase,
-		typename TStateId,
-		typename THandlers>
-	class fsm_state : public THandlers // , public message_handler<>
+		typename TInterface>
+	class fsm_state : public TInterface
 	{
-	public: 
-		typedef TFsm MyTFsm;
-		friend class fsm<TStateBase, TStateId>;
-
-		TStateId get_state_id() const
-		{
-			return state_id;
-		}
-
-	protected:
-
-		fsm_state(TStateId state_id_)
-			: state_id(state_id_),
-				p_context(nullptr)
+	public:
+		fsm_state(TFsm& context)
+			: p_context(&context)
 		{}
 
 		virtual ~fsm_state() = default;
+
 		inline TFsm& get_fsm_context() const
 		{
 			return *p_context;
@@ -278,15 +238,14 @@ namespace etl
 
 	private:
 
-		virtual TStateId on_enter_state() { return state_id; } // By default, do nothing.
-		virtual void on_exit_state() {}  // By default, do nothing.
+		TInterface * on_enter_state() override { return this; } // By default, do nothing.
+		void on_exit_state() override {}  // By default, do nothing.
 
 		void set_fsm_context(TFsm& context)
 		{
 			p_context = &context;
 		}
 
-		const TStateId state_id;
 		TFsm* p_context;
 
 		// Disabled.
@@ -318,28 +277,15 @@ namespace test
 		UNSUPPORTED
 	};
 
-	// -----------------------------------------
-	// States
-	enum class StateId
-	{
-		IDLE,
-		RUNNING,
-		WINDING_DOWN,
-		LOCKED,
-		ERROR,
-		NUMBER_OF_STATES
-	};
-
-
 	class BaseState;
 
 	// -----------------------------------------
-	class Start : public etl::message<etl::message_handler<Start, StateId, StateId::ERROR>>
+	class Start : public etl::message<etl::message_handler<Start>>
 	{
 	};
 	
 	// -----------------------------------------
-	class Stop : public etl::message<etl::message_handler<Stop, StateId, StateId::ERROR>>
+	class Stop : public etl::message<etl::message_handler<Stop>>
 	{
 	public:
 
@@ -350,7 +296,7 @@ namespace test
 	};
 
 	// -----------------------------------------
-	class SetSpeed : public etl::message<etl::message_handler<SetSpeed, StateId, StateId::ERROR>>
+	class SetSpeed : public etl::message<etl::message_handler<SetSpeed>>
 	{
 	public:
 
@@ -360,23 +306,23 @@ namespace test
 	};
 
 	// -----------------------------------------
-	class Stopped : public etl::message<etl::message_handler<Stopped, StateId, StateId::ERROR>>
+	class Stopped : public etl::message<etl::message_handler<Stopped>>
 	{
 	};
 
 	// -----------------------------------------
-	class Recursive : public etl::message<etl::message_handler<Recursive, StateId, StateId::ERROR>>
+	class Recursive : public etl::message<etl::message_handler<Recursive>>
 	{
 	};
 
 	// -----------------------------------------
-	class Unsupported : public etl::message<etl::message_handler<Unsupported, StateId, StateId::ERROR>>
+	class Unsupported : public etl::message<etl::message_handler<Unsupported>>
 	{
 	};
  
 
-	using handlers = 
-		etl::fsm_state_handlers<StateId, StateId::ERROR,
+	using MotorControlStateBase = 
+		etl::ifsm_state<
 			Start,
 			Stop,
 			Stopped,
@@ -384,31 +330,156 @@ namespace test
 			Recursive,
 			Unsupported>;
 
-	// -----------------------------------------
-	// States
-
-	template <typename TFsm>
-	class StateBase : public etl::fsm_state<TFsm, StateBase<TFsm>, StateId, handlers>
+	//***********************************
+	// The idle state.
+	//***********************************
+	class Idle : public MotorControlStateBase
 	{
 	public:
-		using Super = etl::fsm_state<TFsm, StateBase<TFsm>, StateId, handlers>;
-		StateBase(StateId id) : Super(id) {} 
-		//virtual const StateBase& get_receiver() const = 0;
+		//***********************************
+		ifsm_state * on_enter_state() override
+		{
+			return this;
+		}
+
+		//***********************************
+		ifsm_state * on_event(const Start&) override
+		{
+			return new Running();
+		}
 	};
+
+	//***********************************
+	// The running state.
+	//***********************************
+	class Running : public MotorControlStateBase
+	{
+	public:
+
+		//***********************************
+		ifsm_state * on_enter_state() override
+		{
+			get_fsm_context().SetRunning(true);
+			return get_state_id();
+		}
+
+		//***********************************
+		ifsm_state * on_event(const Stop& event) override
+		{
+			if (event.isEmergencyStop)
+			{
+				return new Idle();
+			}
+			else
+			{
+				return new WindowDown();
+			}
+		}
+
+		//***********************************
+		ifsm_state * on_event(const SetSpeed& event) override
+		{
+			get_fsm_context().SetSpeedValue(event.speed);
+			return this;
+		}
+
+		//***********************************
+		void on_exit_state() override
+		{
+			get_fsm_context().SetRunning(false);
+		}
+	};
+
+	//***********************************
+	// The winding down state.
+	//***********************************
+	class WindingDown : public MotorControlStateBase
+	{
+		using Super = StateBase;
+	public:
+
+		WindingDown(Fsm& fsm, int windDownTime) : Super(fsm), WindDownTime(windDownTime) {}
+
+		//***********************************
+		ifsm_state * on_event(const Stopped&) override
+		{
+			return new Idle();
+		}
+
+	private:
+		int WindDownTime;
+
+	};
+
+	//***********************************
+	// The locked state.
+	//***********************************
+	class Locked : public MotorControlStateBase
+	{
+	public:
+	};
+
+	class Error : public MotorControlStateBase
+	{
+	public:
+		ifsm_state * on_enter_state() override
+		{
+			printf("Error state entered!!\n");
+			return this;
+		}
+	};
+
+
+	template<typename TFsm, typename TStateBase, typename... TState0>
+	class StateFactory
+	{
+		using largest = largest_type<TState0...>;
+		union 
+		{
+			char buffer[sizeof(largest)];
+			TStateBase * State;
+		};
+	public:
+	
+		//StateFactory(TFsm& fsm) : Fsm(fsm) {}
+
+		// template <typename _ValueType, typename... _Args>
+		// typename __any_constructible<_Decay<_ValueType>&, _Decay<_ValueType>, _Args&&...>::type emplace(_Args&&... __args)
+		// {
+		// 	__do_emplace<_Decay<_ValueType>>(std::forward<_Args>(__args)...);
+		// 	any::_Arg __arg;
+		// 	this->_M_manager(any::_Op_access, this, &__arg);
+		// 	return *static_cast<_Decay<_ValueType>*>(__arg._M_obj);
+		// }
+
+		template<typename ValueType, typename... _Args>
+		ValueType& emplace(TFsm& fsm, _Args&&... args)
+		{
+			::new (buffer) ValueType(fsm, std::forward<_Args>(args)...);
+			return *static_cast<ValueType*>(State);
+		}
+	};
+
+	//using StateArray = std::array<MotorControlStateBase*, 5>;
+	class MotorControlFsm;
+	using MotorStateFactory = StateFactory<MotorControlFsm, MotorControlStateBase>;
 
 	//***********************************
 	// The motor control FSM.
 	//***********************************
-	class MotorControl : public etl::fsm<StateBase<MotorControl>, StateId>
+	class MotorControlFsm 
+		: public etl::fsm<
+			MotorControlFsm,
+			MotorControlStateBase,
+			MotorStateFactory>
 	{
 	public:
-		using Super = etl::fsm<StateBase<MotorControl>, StateId>;
-		using TStateBase = StateBase<MotorControl>;
+		using Super = etl::fsm<MotorControlFsm, MotorControlStateBase, MotorStateFactory>;
 
 		const static int kRunningSpeed = 10;
 
-		MotorControl(TStateBase** p_states, size_t size)
-			: Super(StateId::IDLE, p_states, size)
+		MotorControlFsm(MotorStateFactory& factory)
+			: Super(factory, new Idle())
 			, isLampOn(false)
 			, desiredSpeed(0)
 			, speed(0)
@@ -433,163 +504,62 @@ namespace test
 		int speed;
 	};
 
-	using MotorControlStateBase = MotorControl::TStateBase;
+	using Fsm = MotorControlFsm;
+	//using StateBase = etl::fsm_state<Fsm, MotorControlStateBase, Idle, Running, WindingDown, Locked, Error>;
 
-	//***********************************
-	// The idle state.
-	//***********************************
-	class Idle : public MotorControlStateBase
-	{
-	public:
-		Idle() : StateBase(StateId::IDLE) { }
-
-		//***********************************
-		StateId on_enter_state() override
-		{
-			return get_state_id();
-		}
-
-		//***********************************
-		StateId on_event(const Start&) override
-		{
-			return StateId::RUNNING;
-		}
-	};
-
-	//***********************************
-	// The running state.
-	//***********************************
-	class Running : public MotorControlStateBase
-	{
-	public:
-		Running() : StateBase(StateId::RUNNING) { }
-
-		//***********************************
-		StateId on_enter_state() override
-		{
-			get_fsm_context().SetRunning(true);
-			return get_state_id();
-		}
-
-		//***********************************
-		StateId on_event(const Stop& event) override
-		{
-			if (event.isEmergencyStop)
-			{
-				return StateId::IDLE;
-			}
-			else
-			{
-				return StateId::WINDING_DOWN;
-			}
-		}
-
-		//***********************************
-		StateId on_event(const SetSpeed& event) override
-		{
-			get_fsm_context().SetSpeedValue(event.speed);
-			return get_state_id();
-		}
-
-		//***********************************
-		void on_exit_state() override
-		{
-			get_fsm_context().SetRunning(false);
-		}
-	};
-
-	//***********************************
-	// The winding down state.
-	//***********************************
-	class WindingDown : public MotorControlStateBase
-	{
-	public:
-		WindingDown() : StateBase(StateId::WINDING_DOWN) { }
-
-		//***********************************
-		StateId on_event(const Stopped&) override
-		{
-			return StateId::IDLE;
-		}
-
-	};
-
-	//***********************************
-	// The locked state.
-	//***********************************
-	class Locked : public MotorControlStateBase
-	{
-	public:
-		Locked() : StateBase(StateId::LOCKED) { }
-	};
-
-	class Error : public MotorControlStateBase
-	{
-	public:
-		Error() : StateBase(StateId::ERROR) {}
-		StateId on_enter_state() override
-		{
-			printf("Error state entered!!\n");
-			return get_state_id();
-		}
-	};
+	// template<typename TFsm, typename TStateBase, typename TStateId>
+	// class IStateFactory
+	// {
+	// public:
+	// }
 
 
 	// The states.
-	Idle        idle;
-	Running     running;
-	WindingDown windingDown;
-	Locked      locked;
-	Error 		error;
-
-	MotorControlStateBase* stateList[] =
-	{
-		&idle, &running, &windingDown, &locked, &error
-	};
 
 	SUITE(test_map)
 	{
 		//*************************************************************************
 		TEST(test_fsm)
 		{
+
 			// Test starting
 			{
 				// Start the FSM.
-				MotorControl motorControl(stateList, etl::size(stateList));
+				Fsm fsm(stateList);
+				StateFactory<MotorControlStateBase, Idle, Running, WindingDown, Locked, Error> Factory(fsm);
+				Idle& idle = Factory.emplace<Idle>();
+				WindingDown& windingDown = Factory.emplace<WindingDown>(5);
 
 				// Now in Idle state.
-				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state_id()));
-				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(motorControl.get_state().get_state_id()));
+				//CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state().get_state_id()));
 
-				CHECK_EQUAL(false, motorControl.isLampOn);
-				CHECK_EQUAL(0, motorControl.speed);
+				CHECK_EQUAL(false, fsm.isLampOn);
+				CHECK_EQUAL(0, fsm.speed);
 			}
 
 			// Test unhandled events.
 			{
 				// Start the FSM.
-				MotorControl motorControl(stateList, etl::size(stateList));
+				Fsm fsm(stateList);
 
-				motorControl.receive(Stop());
+				fsm.receive(Stop());
 
-				CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(motorControl.get_state_id()));
-				CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(motorControl.get_state().get_state_id()));
+				CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(fsm.get_state().get_state_id()));
 
-				CHECK_EQUAL(false, motorControl.isLampOn);
-				CHECK_EQUAL(0, motorControl.speed);
+				CHECK_EQUAL(false, fsm.isLampOn);
+				CHECK_EQUAL(0, fsm.speed);
 			}
 
 			// test starting
 			{
 				// Start the FSM.
-				MotorControl motorControl(stateList, etl::size(stateList));
+				Fsm motorControl(stateList);
 
 				// Send Start event.
 				motorControl.receive(Start());
 
 				// Now in Running state.
-
-				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
 				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 				CHECK_EQUAL(true, motorControl.isLampOn);
@@ -599,16 +569,15 @@ namespace test
 			// test starting, setting speed
 			{
 				// Start the FSM.
-				MotorControl motorControl(stateList, etl::size(stateList));
+				Fsm motorControl(stateList);
 
 				// Send Start event.
 				motorControl.receive(Start());
 
-				int speed = 2*MotorControl::kRunningSpeed;
+				int speed = 2*Fsm::kRunningSpeed;
 				motorControl.receive(SetSpeed(speed));
 
 				// Now in Running state.
-				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state_id()));
 				CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
 
 				CHECK_EQUAL(true, motorControl.isLampOn);
@@ -618,14 +587,13 @@ namespace test
 			// test starting, stopping
 			{
 				// Start the FSM.
-				MotorControl motorControl(stateList, etl::size(stateList));
+				Fsm motorControl(stateList);
 
 				// Send Start event.
 				motorControl.receive(Start());
 				motorControl.receive(Stop());
 
 				// Now in WindingDown state.
-				CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state_id()));
 				CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
 
 				CHECK_EQUAL(false, motorControl.isLampOn);
