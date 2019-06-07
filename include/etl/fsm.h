@@ -223,12 +223,6 @@ namespace etl
     {
     }
 
-	//*******************************************
-	/// State ID to indicate "staying" in a state vs. re-entering it.
-	//	Messages can return this as a value to indicate no state transition.
-	//*******************************************
-    static etl::fsm_state_id_t stay() { return -1; }
-
     //*******************************************
     /// Set the states for the FSM
     //*******************************************
