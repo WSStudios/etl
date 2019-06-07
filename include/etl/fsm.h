@@ -216,6 +216,8 @@ namespace etl
     {
     }
 
+	static etl::fsm_state_id_t stay() { return -1; }
+
     //*******************************************
     /// Set the states for the FSM
     //*******************************************
@@ -257,6 +259,7 @@ namespace etl
 				  {
 					  p_last_state = p_state;
 					  next_state_id = p_state->on_enter_state();
+					  if (next_state_id == stay()) { break; }
 					  p_state = state_list[next_state_id];
 
 				  } while (p_last_state != p_state);
@@ -279,25 +282,27 @@ namespace etl
     void receive(etl::imessage_router& source, const etl::imessage& message)
     {
         etl::fsm_state_id_t next_state_id = p_state->process_event(source, message);
+		if (next_state_id == stay()) { return; }
         ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
 
         etl::ifsm_state* p_next_state = state_list[next_state_id];
 
         // Have we changed state?
-        if (p_next_state != p_state)
-        {
+        //if (p_next_state != p_state)
+        //{
           do
           {
             p_state->on_exit_state();
             p_state = p_next_state;
 
             next_state_id = p_state->on_enter_state();
+			if (next_state_id == stay()) { break; }
             ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
 
             p_next_state = state_list[next_state_id];
 
           } while (p_next_state != p_state); // Have we changed state again?
-        }
+        //}
     }
 
     using imessage_router::accepts;
