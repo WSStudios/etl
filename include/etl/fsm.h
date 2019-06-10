@@ -152,6 +152,13 @@ namespace etl
       return state_id;
     }
 
+    //*******************************************
+    /// State ID to indicate "staying" in a state to differentiate staying from re-entering the state.
+    /// Messages can return this as a value to indicate no state transition.
+    //*******************************************
+    static etl::fsm_state_id_t stay() { return -1; }
+
+
   protected:
 
     //*******************************************
@@ -180,7 +187,7 @@ namespace etl
 
     virtual fsm_state_id_t process_event(etl::imessage_router& source, const etl::imessage& message) = 0;
 
-    virtual fsm_state_id_t on_enter_state() { return state_id; } // By default, do nothing.
+    virtual fsm_state_id_t on_enter_state() { return stay(); } // By default, do nothing.
     virtual void on_exit_state() {}  // By default, do nothing.
 
     //*******************************************
@@ -238,30 +245,21 @@ namespace etl
     /// Starts the FSM.
     /// Can only be called once.
     /// Subsequent calls will do nothing.
-    ///\param call_on_enter_state If will call on_enter_state() for the first state. Default = true.
+    ///\param call_on_enter_state If true will call on_enter_state() for the first state. Default = true.
     //*******************************************
     void start(bool call_on_enter_state = true)
     {
-		  // Can only be started once.
-		  if (p_state == nullptr)
-		  {
-			  p_state = state_list[0];
-			  ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
+      // Can only be started once.
+      if (p_state == nullptr)
+      {
+        p_state = state_list[0];
+        ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
 
-			  if (call_on_enter_state)
-			  {
-				  etl::fsm_state_id_t next_state_id;
-				  etl::ifsm_state*    p_last_state;
-
-				  do
-				  {
-					  p_last_state = p_state;
-					  next_state_id = p_state->on_enter_state();
-					  p_state = state_list[next_state_id];
-
-				  } while (p_last_state != p_state);
-			  }
-		  }
+        if (call_on_enter_state)
+        {
+          transition(p_state->on_enter_state());
+        }
+      }
     }
 
     //*******************************************
@@ -278,26 +276,7 @@ namespace etl
     //*******************************************
     void receive(etl::imessage_router& source, const etl::imessage& message)
     {
-        etl::fsm_state_id_t next_state_id = p_state->process_event(source, message);
-        ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
-
-        etl::ifsm_state* p_next_state = state_list[next_state_id];
-
-        // Have we changed state?
-        if (p_next_state != p_state)
-        {
-          do
-          {
-            p_state->on_exit_state();
-            p_state = p_next_state;
-
-            next_state_id = p_state->on_enter_state();
-            ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
-
-            p_next_state = state_list[next_state_id];
-
-          } while (p_next_state != p_state); // Have we changed state again?
-        }
+      transition(p_state->process_event(source, message));
     }
 
     using imessage_router::accepts;
@@ -360,7 +339,24 @@ namespace etl
       p_state = nullptr;
     }
 
+
   private:
+
+    void transition(etl::fsm_state_id_t next_state_id)
+    {
+      // Have we changed state? (must be checked in while loop to account for state changes from on_enter_state)
+      while (next_state_id != ifsm_state::stay())
+      {
+        ETL_ASSERT(next_state_id < number_of_states, ETL_ERROR(etl::fsm_state_id_exception));
+        etl::ifsm_state* p_next_state = state_list[next_state_id];
+
+        p_state->on_exit_state();
+        p_state = p_next_state;
+
+        next_state_id = p_state->on_enter_state();
+      }
+    }
+
 
     etl::ifsm_state*    p_state;          ///< A pointer to the current state.
     etl::ifsm_state**   state_list;       ///< The list of added states.
@@ -390,8 +386,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -455,8 +451,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -519,8 +515,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -582,8 +578,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -643,8 +639,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -703,8 +699,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -762,8 +758,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -820,8 +816,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -876,8 +872,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -931,8 +927,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -985,8 +981,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -1038,8 +1034,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -1089,8 +1085,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -1139,8 +1135,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -1188,8 +1184,8 @@ namespace etl
     }
 
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
@@ -1236,7 +1232,7 @@ namespace etl
     }
 
   protected:
-      
+
     virtual ~fsm_state()
     {
     }
@@ -1280,10 +1276,10 @@ namespace etl
       : ifsm_state(STATE_ID)
     {
     }
-  
+
   protected:
-      
-    ~fsm_state()
+
+    virtual ~fsm_state()
     {
     }
 
