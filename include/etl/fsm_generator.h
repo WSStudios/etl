@@ -257,14 +257,15 @@ namespace etl
     /// Starts the FSM.
     /// Can only be called once.
     /// Subsequent calls will do nothing.
-    ///\param call_on_enter_state If true will call on_enter_state() for the first state. Default = true.
+	///\param call_on_enter_state If true will call on_enter_state() for the first state. Default = true.
+	///\param initial_state_index Index of the state to start in.
     //*******************************************
-    void start(bool call_on_enter_state = true)
+    void start(bool call_on_enter_state = true, int32 initial_state_index = 0)
     {
       // Can only be started once.
       if (p_state == nullptr)
       {
-        p_state = state_list[0];
+        p_state = state_list[initial_state_index];
         ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
 
         if (call_on_enter_state)
