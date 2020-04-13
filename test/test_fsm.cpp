@@ -87,31 +87,31 @@ namespace new_etl
 
 }
 
-
 namespace etl
 {
 
 	// -----------------------------------------
 	template <typename THandler>
-	class message
+	class event
 	{
 	public:
 		using handler_type = THandler;
-		message() = default;
+		event() = default;
+		const char * description() const { return typeid(decltype(this)).name(); }
 	};
 
 	// -----------------------------------------
-	template<typename TBase, typename TMessageType>
-	struct message_handler
+	template<typename TBase, typename TEventType>
+	struct event_handler
 	{
-		message_handler()
+		event_handler()
 		{
-			static_assert(new_etl::is_static_castable<decltype(this),TBase*>::value, "bad message_handler!");
+			static_assert(new_etl::is_static_castable<decltype(this),TBase*>::value, "bad event_handler!");
 		}
 
-		virtual TBase * on_event(const TMessageType&)
+		virtual TBase * on_event(const TEventType& event)
 		{
-			return static_cast<TBase*>(this)->on_event_unknown();
+			return static_cast<TBase*>(this)->on_event_unknown(event.description());
 		}
 	};
 
@@ -147,10 +147,13 @@ namespace etl
 	{
 	public:
 
-		fsm_unknown_event_exception(string_type file_name_, numeric_type line_number_)
-			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:unknown event", ETL_FILE"A"), file_name_, line_number_)
+		fsm_unknown_event_exception(const char * event_description_)
+			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:unknown event", ETL_FILE"A"), "", 0)
+			, event_description(event_description_)
 		{
 		}
+	private:
+		const char * event_description;
 	};
 
 
@@ -223,11 +226,11 @@ namespace etl
 		}
 
 		//*******************************************
-		template <typename TMessage>
-		void receive(const TMessage& message)
+		template <typename TEvent>
+		void receive(const TEvent& event)
 		{
-			using handler_type = typename TMessage::handler_type;
-			TStateType * next_state = static_cast<handler_type*>(p_state)->on_event(message);
+			using handler_type = typename TEvent::handler_type;
+			TStateType * next_state = static_cast<handler_type*>(p_state)->on_event(event);
 			transition(next_state);
 		}
 
@@ -289,37 +292,37 @@ namespace etl
 	template <
 		class TFsm,
 		class TBaseType,
-		typename... MessageType>
+		typename... EventType>
 	class fsm_state
-		: public ifsm_state<fsm_state<TFsm, TBaseType, MessageType...>>
-		, public message_handler<TBaseType, MessageType>...
+		: public ifsm_state<fsm_state<TFsm, TBaseType, EventType...>>
+		, public event_handler<TBaseType, EventType>...
 	{
 	public:
-		using TBase = ifsm_state<fsm_state<TFsm, MessageType...>>;
+		using TBase = ifsm_state<fsm_state<TFsm, EventType...>>;
 
-		fsm_state(TFsm& context)
-			: p_context(&context)
+		fsm_state(TFsm& fsm)
+			: p_fsm(&fsm)
 		{}
 
 		virtual ~fsm_state() = default;
 
-		inline TFsm& get_fsm_context() const
+		inline TFsm& get_fsm() const
 		{
-			return *p_context;
+			return *p_fsm;
 		}
 
 		// TBaseType * on_enter_state() override { return this; } // By default, do nothing.
 		void on_exit_state() override {}  // By default, do nothing.
-		TBaseType* on_event_unknown()
+		TBaseType* on_event_unknown(const char * desc)
 		{
-			ETL_ASSERT(false, ETL_ERROR(etl::fsm_unknown_event_exception));
+			throw etl::fsm_unknown_event_exception(desc);
 			return static_cast<TBaseType*>(this);
 		}
 
 		virtual const char * description() const = 0;
 
 	private:
-		TFsm* p_context;
+		TFsm* p_fsm;
 
 		// Disabled.
 		fsm_state(const fsm_state&);
@@ -339,8 +342,8 @@ namespace test
 
 	// -----------------------------------------
 	class MyStateBase;
-	class MyEvent0 : public etl::message<etl::message_handler<MyStateBase, MyEvent0>> {};
-	class MyEvent1 : public etl::message<etl::message_handler<MyStateBase, MyEvent1>> {};
+	class MyEvent0 : public etl::event<etl::event_handler<MyStateBase, MyEvent0>> {};
+	class MyEvent1 : public etl::event<etl::event_handler<MyStateBase, MyEvent1>> {};
 
 	class MyFsm;
 	class MyStateBase;
@@ -443,8 +446,8 @@ namespace test
 	// -----------------------------------------
 	MyStateBase * MyState0::on_event(const MyEvent0& event)
 	{
-		printf("MyState0::on_event MyEvent0.\n");
-		return get_fsm_context().get_factory().create<MyState1>(get_fsm_context());
+		printf("%s::on_event %s\n", description(), event.description());
+		return get_fsm().get_factory().create<MyState1>(get_fsm());
 	}
 
 	// -----------------------------------------
@@ -477,10 +480,10 @@ namespace test
 	}
 
 	// -----------------------------------------
-	MyStateBase * MyState1::on_event(const MyEvent1&)
+	MyStateBase * MyState1::on_event(const MyEvent1& event)
 	{
-		printf("MyState1::on_event MyEvent1.\n");
-		return get_fsm_context().get_factory().create<MyState0>(get_fsm_context());
+		printf("%s::on_event %s\n", description(), event.description());
+		return get_fsm().get_factory().create<MyState0>(get_fsm());
 	}
 
 	// // -----------------------------------------
@@ -575,247 +578,3 @@ namespace test
 		}
 	};
 }
-
-
-// namespace test
-// {
-
-// 	// -----------------------------------------
-// 	// Events
-// 	enum class EventId
-// 	{
-// 		START,
-// 		STOP,
-// 		STOPPED,
-// 		SET_SPEED,
-// 		RECURSIVE,
-// 		UNSUPPORTED
-// 	};
-
-// 	// -----------------------------------------
-// 	class Start : public etl::message<etl::message_handler<void, Start>>
-// 	{
-// 	};
-
-// 	// -----------------------------------------
-// 	class Stop : public etl::message<etl::message_handler<void, Stop>>
-// 	{
-// 	public:
-
-// 		Stop() : isEmergencyStop(false) {}
-// 		Stop(bool emergency) : isEmergencyStop(emergency) {}
-
-// 		const bool isEmergencyStop;
-// 	};
-
-// 	// -----------------------------------------
-// 	class SetSpeed : public etl::message<etl::message_handler<void, SetSpeed>>
-// 	{
-// 	public:
-
-// 		SetSpeed(int speed_) : speed(speed_) {}
-
-// 		const int speed;
-// 	};
-
-// 	// -----------------------------------------
-// 	class Stopped : public etl::message<etl::message_handler<void, Stopped>>
-// 	{
-// 	};
-
-// 	// -----------------------------------------
-// 	class Recursive : public etl::message<etl::message_handler<void, Recursive>>
-// 	{
-// 	};
-
-// 	// -----------------------------------------
-// 	class Unsupported : public etl::message<etl::message_handler<void, Unsupported>>
-// 	{
-// 	};
-
-
-// 	class MotorControlFsm;
-// 	using MotorControlState = etl::fsm_state<
-// 		MotorControlFsm,
-// 		Start,
-// 		Stop,
-// 		Stopped,
-// 		SetSpeed,
-// 		Recursive,
-// 		Unsupported>;
-
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-// 	// STATES DECLARATIONS
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-
-// 	using StateBase = MotorControlState::TBase;
-
-// 	class Idle : public MotorControlState
-// 	{
-// 	public:
-// 		Idle(MotorControlFsm& fsm) : MotorControlState(fsm) {}
-// 		virtual MotorControlState * on_enter_state() override;
-// 		virtual MotorControlState * on_event(const Start&) override;
-// 	};
-
-// 	class Running : public MotorControlState
-// 	{
-// 	public:
-// 		Running(MotorControlFsm& fsm) : MotorControlState(fsm) {}
-// 		MotorControlState * on_enter_state() override;
-// 		MotorControlState * on_event(const Stop& event) override;
-// 		MotorControlState * on_event(const SetSpeed& event) override;
-// 		void on_exit_state() override;
-// 	};
-
-// 	class WindingDown : public MotorControlState
-// 	{
-// 	public:
-// 		WindingDown(MotorControlFsm& fsm, int windDownTime) : MotorControlState(fsm), WindDownTime(windDownTime) {}
-// 		MotorControlState * on_event(const Stopped&) override;
-// 	private:
-// 		int WindDownTime;
-// 	};
-
-// 	class Locked : public MotorControlState
-// 	{
-// 	public:
-// 		Locked(MotorControlFsm& fsm) : MotorControlState(fsm) {}
-// 	};
-
-// 	class Error : public MotorControlState
-// 	{
-// 	public:
-// 		Error(MotorControlFsm& fsm) : MotorControlState(fsm) {}
-// 		MotorControlState * on_enter_state() override;
-// 	};
-
-
-
-// 	//using StateArray = std::array<MotorControlState*, 5>;
-// 	using MotorStateFactory = etl::StateFactory<MotorControlFsm,
-// 												MotorControlState,
-// 												Idle,
-// 												Running,
-// 												WindingDown,
-// 												Locked,
-// 												Error>;
-
-// 	//***********************************
-// 	// The motor control FSM.
-// 	//***********************************
-// 	class MotorControlFsm
-// 		: public etl::fsm<MotorStateFactory>
-// 	{
-// 		using Super = etl::fsm<MotorStateFactory>;
-
-// 	public:
-
-// 		const static int kRunningSpeed = 10;
-
-// 		MotorControlFsm(MotorStateFactory& factory)
-// 			: Super(factory, factory.emplace<Idle>(*this))
-// 			, isLampOn(false)
-// 			, desiredSpeed(0)
-// 			, speed(0)
-// 		{ }
-
-// 		//***********************************
-// 		void SetSpeedValue(int speed_)
-// 		{
-// 			desiredSpeed = speed_;
-// 			speed = speed_;
-// 		}
-
-// 		//***********************************
-// 		void SetRunning(bool on)
-// 		{
-// 			isLampOn = on;
-// 			SetSpeedValue(on ? kRunningSpeed : 0);
-// 		}
-
-// 		bool isLampOn;
-// 		int desiredSpeed;
-// 		int speed;
-// 	};
-
-
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-// 	// STATES DEFINITIONS
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-// 	// -----------------------------------------
-
-
-// 	//***********************************
-// 	// The idle state.
-// 	//***********************************
-// 	MotorControlState * Idle::on_enter_state()
-// 	{
-// 		return this;
-// 	}
-
-// 	MotorControlState * Idle::on_event(const Start&)
-// 	{
-// 		return get_fsm_context().get_factory().emplace<Running>(get_fsm_context());
-// 	}
-
-// 	//***********************************
-// 	// The running state.
-// 	//***********************************
-// 	MotorControlState * Running::on_enter_state()
-// 	{
-// 		get_fsm_context().SetRunning(true);
-// 		return this;
-// 	}
-
-// 	//***********************************
-// 	MotorControlState * Running::on_event(const Stop& event)
-// 	{
-// 		if (event.isEmergencyStop)
-// 		{
-// 			return get_fsm_context().get_factory().emplace<Idle>(get_fsm_context());
-// 		}
-// 		else
-// 		{
-// 			return get_fsm_context().get_factory().emplace<WindingDown>(get_fsm_context(), 2.0f);
-// 		}
-// 	}
-
-// 	//***********************************
-// 	MotorControlState * Running::on_event(const SetSpeed& event)
-// 	{
-// 		get_fsm_context().SetSpeedValue(event.speed);
-// 		return this;
-// 	}
-
-// 	//***********************************
-// 	void Running::on_exit_state()
-// 	{
-// 		get_fsm_context().SetRunning(false);
-// 	}
-
-// 	//***********************************
-// 	// The winding down state.
-// 	//***********************************
-// 	MotorControlState * WindingDown::on_event(const Stopped&)
-// 	{
-// 		return get_fsm_context().get_factory().emplace<Idle>(get_fsm_context());
-// 	}
-
-// 	//***********************************
-// 	// Error state
-// 	//***********************************
-// 	MotorControlState * Error::on_enter_state()
-// 	{
-// 		printf("Error state entered!!\n");
-// 		return this;
-// 	}
-
-// }
