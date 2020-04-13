@@ -30,10 +30,11 @@
 
 #include "UnitTest++.h"
 
-#undef ETL_THROW_EXCEPTIONS
+#define ETL_THROW_EXCEPTIONS
 
-//#include "etl/platform.h"
+#include "etl/platform.h"
 #include "etl/exception.h"
+#include "etl/error_handler.h"
 #include "etl/pool.h"
 
 template<typename E>
@@ -44,24 +45,6 @@ constexpr auto to_integral(E e) -> typename std::underlying_type<E>::type
 
 namespace new_etl
 {
-	// template <typename... Ts>
-	// struct largest_type;
-
-	// template <typename T>
-	// struct largest_type<T>
-	// {
-	// 	using type = T;
-	// };
-
-	// template <typename T, typename U, typename... Ts>
-	// struct largest_type<T, U, Ts...>
-	// {
-	// 	using type = typename largest_type<typename std::conditional<
-	// 										   (sizeof(U) <= sizeof(T)), T, U
-	// 										   >::type, Ts...
-	// 										   >::type;
-	// };
-
 	template <class F, class T, class = T>
 	struct is_static_castable : std::false_type
 	{};
@@ -81,6 +64,27 @@ namespace new_etl
 	{
 		static constexpr size_t value = std::max(sizeof(T), MaxSizeof<Ts...>::value);
 	};
+
+
+	template<typename... Ts>
+	struct MaxAlignmentof
+	{
+		static constexpr size_t value = 0;
+	};
+
+	template<typename T, typename... Ts>
+	struct MaxAlignmentof<T, Ts...>
+	{
+		static constexpr size_t value = std::max(alignof(T), MaxSizeof<Ts...>::value);
+	};
+
+	template<typename T, typename... Ts>
+	struct MaxTraits
+	{
+		static constexpr size_t MaxSize = MaxSizeof<T, Ts...>::value;
+		static constexpr size_t MaxAlignment = MaxAlignmentof<T, Ts...>::value;
+	};
+
 }
 
 
@@ -100,14 +104,11 @@ namespace etl
 	template<typename TBase, typename TMessageType>
 	struct message_handler
 	{
-		//static_assert(new_etl::is_static_castable<message_handler<TBase,TMessageType>*,TBase*>::value, "bad message_handler!");
-
 		message_handler()
 		{
 			static_assert(new_etl::is_static_castable<decltype(this),TBase*>::value, "bad message_handler!");
 		}
 
-		//virtual TBase * on_event(const TMessageType&) = 0;
 		virtual TBase * on_event(const TMessageType&)
 		{
 			return static_cast<TBase*>(this)->on_event_unknown();
@@ -141,6 +142,17 @@ namespace etl
 		{
 		}
 	};
+
+	class fsm_unknown_event_exception : public etl::fsm_exception
+	{
+	public:
+
+		fsm_unknown_event_exception(string_type file_name_, numeric_type line_number_)
+			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:unknown event", ETL_FILE"A"), file_name_, line_number_)
+		{
+		}
+	};
+
 
 	// -----------------------------------------
 	/// Exception for invalid state id.
@@ -237,7 +249,11 @@ namespace etl
 	// -----------------------------------------
 	/// State Factory Class
 	// -----------------------------------------
-	template<typename TFsm, typename TBaseStateType, typename... TState0>
+	template<
+		typename TFsm,
+		typename TBaseStateType,
+		size_t MAX_SIZE,
+		size_t MAX_ALIGNMENT>
 	class StateFactory
 	{
 	public:
@@ -253,7 +269,7 @@ namespace etl
 			pool.release(item);
 		}
 	private:
-		etl::generic_pool<new_etl::MaxSizeof<TState0...>::value, 16, 2> pool;
+		etl::generic_pool<MAX_SIZE, MAX_ALIGNMENT, 2> pool;
 	};
 
 	// -----------------------------------------
@@ -262,11 +278,9 @@ namespace etl
 	template<typename TInterface>
 	class ifsm_state
 	{
-		//using MyType = ;
 	public:
 		virtual TInterface * on_enter_state() = 0;
 		virtual void on_exit_state() = 0;
-		//virtual ifsm_state * get_state_id() const = 0;
 	};
 
 	// -----------------------------------------
@@ -298,7 +312,7 @@ namespace etl
 		void on_exit_state() override {}  // By default, do nothing.
 		TBaseType* on_event_unknown()
 		{
-			printf("unknown event!\n");
+			ETL_ASSERT(false, ETL_ERROR(etl::fsm_unknown_event_exception));
 			return static_cast<TBaseType*>(this);
 		}
 
@@ -376,11 +390,13 @@ namespace test
 
 	// -----------------------------------------
 
+	typedef new_etl::MaxTraits<MyState0, MyState1> StateTraits;
+
 	using MyStateFactory =
 		etl::StateFactory<MyFsm,
 						  MyStateBase,
-						  MyState0,
-						  MyState1>;
+						  StateTraits::MaxSize,
+						  StateTraits::MaxAlignment>;
 
 	using MyFsmBase = etl::fsm<MyStateFactory, MyStateBase>;
 
@@ -494,7 +510,7 @@ namespace test
 
 			// Test starting
 			{
-				try
+				//try
 				{
 					printf("Test started.\n");
 
@@ -527,20 +543,20 @@ namespace test
 
 					{
 						MyEvent1 m;
-						fsm.receive(m);
+						CHECK_THROW(fsm.receive(m), etl::fsm_unknown_event_exception);
 					}
 
 					printf("In State: %s\n", fsm.get_state().description());
 				}
-				catch (etl::fsm_exception e)
-				{
-					printf("exception: %s %s:%d\n", e.what(), e.file_name(), e.line_number());
-				}
-				catch (...)
-				{
-					printf("caught unknown exception!!\n");
+				// catch (etl::fsm_exception e)
+				// {
+				// 	printf("exception: %s %s:%d\n", e.what(), e.file_name(), e.line_number());
+				// }
+				// catch (...)
+				// {
+				// 	printf("caught unknown exception!!\n");
 
-				}
+				// }
 
 				//Idle* idle = Factory.emplace<Idle>(fsm);
 				//WindingDown* windingDown = Factory.emplace<WindingDown>(fsm, 5);
@@ -802,95 +818,4 @@ namespace test
 // 		return this;
 // 	}
 
-
-
-// 	SUITE(test_map)
-// 	{
-// 		//*************************************************************************
-// 		TEST(test_fsm)
-// 		{
-
-// 			// Test starting
-// 			{
-// 				// Start the FSM.
-// 				MotorStateFactory Factory;
-// 				MotorControlFsm fsm(Factory);
-// 				//Idle* idle = Factory.emplace<Idle>(fsm);
-// 				//WindingDown* windingDown = Factory.emplace<WindingDown>(fsm, 5);
-
-// 				Start m;
-// 				fsm.receive(m);
-
-
-// 				// Now in Idle state.
-// 				//CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state_id()));
-// 				//CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state().get_state_id()));
-
-// 				CHECK_EQUAL(false, fsm.isLampOn);
-// 				CHECK_EQUAL(0, fsm.speed);
-// 			}
-
-// 			// Test unhandled events.
-// 			// {
-// 			// 	// Start the FSM.
-// 			// 	Fsm fsm(stateList);
-
-// 			// 	fsm.receive(Stop());
-
-// 			// 	CHECK_EQUAL(to_integral(StateId::ERROR), to_integral(fsm.get_state().get_state_id()));
-
-// 			// 	CHECK_EQUAL(false, fsm.isLampOn);
-// 			// 	CHECK_EQUAL(0, fsm.speed);
-// 			// }
-
-// 			// // test starting
-// 			// {
-// 			// 	// Start the FSM.
-// 			// 	Fsm motorControl(stateList);
-
-// 			// 	// Send Start event.
-// 			// 	motorControl.receive(Start());
-
-// 			// 	// Now in Running state.
-// 			// 	CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
-
-// 			// 	CHECK_EQUAL(true, motorControl.isLampOn);
-// 			// 	// CHECK_EQUAL(0, motorControl.speed);
-// 			// }
-
-// 			// // test starting, setting speed
-// 			// {
-// 			// 	// Start the FSM.
-// 			// 	Fsm motorControl(stateList);
-
-// 			// 	// Send Start event.
-// 			// 	motorControl.receive(Start());
-
-// 			// 	int speed = 2*Fsm::kRunningSpeed;
-// 			// 	motorControl.receive(SetSpeed(speed));
-
-// 			// 	// Now in Running state.
-// 			// 	CHECK_EQUAL(to_integral(StateId::RUNNING), to_integral(motorControl.get_state().get_state_id()));
-
-// 			// 	CHECK_EQUAL(true, motorControl.isLampOn);
-// 			// 	CHECK_EQUAL(speed, motorControl.speed);
-// 			// }
-
-// 			// // test starting, stopping
-// 			// {
-// 			// 	// Start the FSM.
-// 			// 	Fsm motorControl(stateList);
-
-// 			// 	// Send Start event.
-// 			// 	motorControl.receive(Start());
-// 			// 	motorControl.receive(Stop());
-
-// 			// 	// Now in WindingDown state.
-// 			// 	CHECK_EQUAL(to_integral(StateId::WINDING_DOWN), to_integral(motorControl.get_state().get_state_id()));
-
-// 			// 	CHECK_EQUAL(false, motorControl.isLampOn);
-// 			// 	CHECK_EQUAL(0, motorControl.speed);
-// 			// }
-// 		}
-// 	};
 // }
