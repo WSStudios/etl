@@ -26,30 +26,15 @@
 // SOFTWARE.
 //  -----------------------------------------
 
-#include <utility>
-#include <array>
 #include <type_traits>
 
 #include "UnitTest++.h"
 
 #undef ETL_THROW_EXCEPTIONS
 
-#include "etl/platform.h"
-#include "etl/array.h"
-#include "etl/nullptr.h"
-#include "etl/error_handler.h"
+//#include "etl/platform.h"
 #include "etl/exception.h"
-#include "etl/user_type.h"
-//#include "etl/message_router.h"
-#include "etl/integral_limits.h"
-//#include "etl/largest.h"
-#include "etl/enum_type.h"
-#include "etl/container.h"
-// #include "etl/packet.h"
-// #include "etl/queue.h"
 #include "etl/pool.h"
-
-//#include <iostream>
 
 template<typename E>
 constexpr auto to_integral(E e) -> typename std::underlying_type<E>::type
@@ -59,23 +44,31 @@ constexpr auto to_integral(E e) -> typename std::underlying_type<E>::type
 
 namespace new_etl
 {
-	template <typename... Ts>
-	struct largest_type;
+	// template <typename... Ts>
+	// struct largest_type;
 
-	template <typename T>
-	struct largest_type<T>
-	{
-		using type = T;
-	};
+	// template <typename T>
+	// struct largest_type<T>
+	// {
+	// 	using type = T;
+	// };
 
-	template <typename T, typename U, typename... Ts>
-	struct largest_type<T, U, Ts...>
-	{
-		using type = typename largest_type<typename std::conditional<
-											   (sizeof(U) <= sizeof(T)), T, U
-											   >::type, Ts...
-											   >::type;
-	};
+	// template <typename T, typename U, typename... Ts>
+	// struct largest_type<T, U, Ts...>
+	// {
+	// 	using type = typename largest_type<typename std::conditional<
+	// 										   (sizeof(U) <= sizeof(T)), T, U
+	// 										   >::type, Ts...
+	// 										   >::type;
+	// };
+
+	template <class F, class T, class = T>
+	struct is_static_castable : std::false_type
+	{};
+
+	template <class F, class T>
+	struct is_static_castable<F, T, decltype(static_cast<T>(std::declval<F>()))> : std::true_type
+	{};
 
 	template<typename... Ts>
 	struct MaxSizeof
@@ -103,8 +96,25 @@ namespace etl
 		message() = default;
 	};
 
-	/// Allow alternative type for state id.
-	typedef int32_t fsm_state_id_t;
+	// -----------------------------------------
+	template<typename TBase, typename TMessageType>
+	struct message_handler
+	{
+		//static_assert(new_etl::is_static_castable<message_handler<TBase,TMessageType>*,TBase*>::value, "bad message_handler!");
+
+		message_handler()
+		{
+			static_assert(new_etl::is_static_castable<decltype(this),TBase*>::value, "bad message_handler!");
+		}
+
+		//virtual TBase * on_event(const TMessageType&) = 0;
+		virtual TBase * on_event(const TMessageType&)
+		{
+			return static_cast<TBase*>(this)->on_event_unknown();
+		}
+	};
+
+
 
 	// -----------------------------------------
 	/// Base exception class for FSM.
@@ -185,12 +195,13 @@ namespace etl
 		{
 			ETL_ASSERT((p_to_state != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
 
-			// Have we actually changed states?
+			// Transition until we don't change states
 			for (TStateType * p_next_state = p_to_state; p_next_state != p_state; )
 			{
 				if (p_state != nullptr)
 				{
 					p_state->on_exit_state();
+					factory->destroy(p_state);
 				}
 				p_state = p_next_state;
 				ETL_ASSERT((p_state != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
@@ -234,19 +245,15 @@ namespace etl
 		ValueType* create(TFsm& fsm, _Args&&... args)
 		{
 			return new (pool.template allocate<ValueType>()) ValueType(fsm, std::forward<_Args>(args)...);
-			//::new (buffer) ValueType(fsm, std::forward<_Args>(args)...);
-			//return static_cast<ValueType*>(BaseState);
+		}
+		template<typename ValueType>
+		void destroy(ValueType* item)
+		{
+			item->~ValueType();
+			pool.release(item);
 		}
 	private:
 		etl::generic_pool<new_etl::MaxSizeof<TState0...>::value, 16, 2> pool;
-	};
-
-	// -----------------------------------------
-	template<typename TBase, typename TMessageType>
-	struct message_handler
-	{
-		//using MyType = message_handler<typename TMessageType>;
-		virtual TBase * on_event(const TMessageType&) { return static_cast<TBase*>(this); }
 	};
 
 	// -----------------------------------------
@@ -271,7 +278,7 @@ namespace etl
 		typename... MessageType>
 	class fsm_state
 		: public ifsm_state<fsm_state<TFsm, TBaseType, MessageType...>>
-		, public message_handler<TBaseType, MessageType...>
+		, public message_handler<TBaseType, MessageType>...
 	{
 	public:
 		using TBase = ifsm_state<fsm_state<TFsm, MessageType...>>;
@@ -289,6 +296,11 @@ namespace etl
 
 		// TBaseType * on_enter_state() override { return this; } // By default, do nothing.
 		void on_exit_state() override {}  // By default, do nothing.
+		TBaseType* on_event_unknown()
+		{
+			printf("unknown event!\n");
+			return static_cast<TBaseType*>(this);
+		}
 
 		virtual const char * description() const = 0;
 
@@ -312,28 +324,21 @@ namespace test
 {
 
 	// -----------------------------------------
-	// Events
-	enum class EventId
-	{
-		MY_EVENT
-	};
-
-	// -----------------------------------------
 	class MyStateBase;
-	class MyEvent : public etl::message<etl::message_handler<MyStateBase, MyEvent>>
-	{
-	};
+	class MyEvent0 : public etl::message<etl::message_handler<MyStateBase, MyEvent0>> {};
+	class MyEvent1 : public etl::message<etl::message_handler<MyStateBase, MyEvent1>> {};
 
 	class MyFsm;
-	class MyStateBase : public etl::fsm_state<MyFsm, MyStateBase, MyEvent>
+	class MyStateBase;
+	using FsmBase = etl::fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1>;
+	class MyStateBase : public FsmBase
 	{
-		using Super = etl::fsm_state<MyFsm, MyStateBase, MyEvent>;
+		using Super = FsmBase;
 	public:
 		MyStateBase(MyFsm& fsm) : Super(fsm) {}
 		virtual MyStateBase * on_enter_state() override { printf("oops!!\n"); return this; }
 		virtual const char * description() const override { return "MyStateBase"; }
 	};
-	//using CommonStateBase = etl::fsm_state<MyFsm, MyStateBase, MyEvent>;
 
 	// -----------------------------------------
 	// -----------------------------------------
@@ -343,27 +348,45 @@ namespace test
 	// -----------------------------------------
 	// -----------------------------------------
 
-	class MyState : public MyStateBase
+	// -----------------------------------------
+	class MyState0 : public MyStateBase
 	{
 	public:
-		MyState(MyFsm& fsm);
+		MyState0(MyFsm& fsm);
 		virtual MyStateBase * on_enter_state() override;
-		virtual MyStateBase * on_event(const MyEvent&) override;
-		virtual const char * description() const override { return "MyState"; }
+		virtual MyStateBase * on_event(const MyEvent0&) override;
+		virtual const char * description() const override { return "MyState0"; }
+		void dump0() const;
 	private:
 		int numbers[16];
 	};
 
+	// -----------------------------------------
+	class MyState1 : public MyStateBase
+	{
+	public:
+		MyState1(MyFsm& fsm);
+		virtual MyStateBase * on_enter_state() override;
+		virtual MyStateBase * on_event(const MyEvent1&) override;
+		virtual const char * description() const override { return "MyState1"; }
+		// void dump1() const;
+	private:
+		//int numbers[16];
+	};
+
+	// -----------------------------------------
+
 	using MyStateFactory =
 		etl::StateFactory<MyFsm,
 						  MyStateBase,
-						  MyState>;
+						  MyState0,
+						  MyState1>;
 
 	using MyFsmBase = etl::fsm<MyStateFactory, MyStateBase>;
 
-	//***********************************
-	// The motor control FSM.
-	//***********************************
+	// -----------------------------------------
+	// The Test FSM.
+	// -----------------------------------------
 	class MyFsm : public MyFsmBase
 	{
 		using Super = MyFsmBase;
@@ -384,8 +407,8 @@ namespace test
 	// -----------------------------------------
 	// -----------------------------------------
 
-
-	MyState::MyState(MyFsm& fsm)
+	// -----------------------------------------
+	MyState0::MyState0(MyFsm& fsm)
 		: MyStateBase(fsm)
 	{
 		for (int32_t ii = 0; ii < 16; ++ii)
@@ -394,18 +417,74 @@ namespace test
 		}
 	}
 
-	MyStateBase * MyState::on_enter_state()
+	// -----------------------------------------
+	MyStateBase * MyState0::on_enter_state()
 	{
-		printf("MyState::on_enter_state.\n");
+		printf("MyState0::on_enter_state.\n");
 		return this;
 	}
 
-	MyStateBase * MyState::on_event(const MyEvent&)
+	// -----------------------------------------
+	MyStateBase * MyState0::on_event(const MyEvent0& event)
 	{
-		printf("MyState::on_event.\n");
+		printf("MyState0::on_event MyEvent0.\n");
+		return get_fsm_context().get_factory().create<MyState1>(get_fsm_context());
+	}
+
+	// -----------------------------------------
+	void MyState0::dump0() const
+	{
+		for (int32_t ii = 0; ii < 16; ++ii)
+		{
+			printf("%d: %d\n", ii, numbers[ii]);
+		}
+	}
+
+	// -----------------------------------------
+	// -----------------------------------------
+
+	// -----------------------------------------
+	MyState1::MyState1(MyFsm& fsm)
+		: MyStateBase(fsm)
+	{
+		// for (int32_t ii = 0; ii < 16; ++ii)
+		// {
+		// 	numbers[ii] = 16-ii;
+		// }
+	}
+
+	// -----------------------------------------
+	MyStateBase * MyState1::on_enter_state()
+	{
+		printf("MyState1::on_enter_state.\n");
 		return this;
 	}
 
+	// -----------------------------------------
+	MyStateBase * MyState1::on_event(const MyEvent1&)
+	{
+		printf("MyState1::on_event MyEvent1.\n");
+		return get_fsm_context().get_factory().create<MyState0>(get_fsm_context());
+	}
+
+	// // -----------------------------------------
+	// void MyState1::dump1() const
+	// {
+	// 	for (int32_t ii = 0; ii < 16; ++ii)
+	// 	{
+	// 		printf("%d: %d\n", ii, numbers[ii]);
+	// 	}
+	// }
+
+
+
+
+
+	// -----------------------------------------
+	// -----------------------------------------
+	// -----------------------------------------
+	// -----------------------------------------
+	// -----------------------------------------
 
 	SUITE(test_map)
 	{
@@ -423,16 +502,39 @@ namespace test
 					MyStateFactory Factory;
 					MyFsm fsm(&Factory);
 
-					fsm.start(Factory.create<MyState>(fsm));
+					fsm.start(Factory.create<MyState0>(fsm));
 
-					MyEvent m;
-					fsm.receive(m);
+					printf("In State: %s\n", fsm.get_state().description());
+
+					{
+						const MyState0& s = static_cast<const MyState0&>(fsm.get_state());
+						s.dump0();
+					}
+
+					{
+						MyEvent0 m;
+						fsm.receive(m);
+					}
+
+					printf("In State: %s\n", fsm.get_state().description());
+
+					{
+						MyEvent1 m;
+						fsm.receive(m);
+					}
+
+					printf("In State: %s\n", fsm.get_state().description());
+
+					{
+						MyEvent1 m;
+						fsm.receive(m);
+					}
 
 					printf("In State: %s\n", fsm.get_state().description());
 				}
 				catch (etl::fsm_exception e)
 				{
-					printf("Caught exception!!\n");
+					printf("exception: %s %s:%d\n", e.what(), e.file_name(), e.line_number());
 				}
 				catch (...)
 				{
