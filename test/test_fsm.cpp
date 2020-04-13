@@ -341,10 +341,12 @@ namespace test
 	class MyStateBase;
 	class MyEvent0 : public event<event_handler<MyStateBase, MyEvent0>> {};
 	class MyEvent1 : public event<event_handler<MyStateBase, MyEvent1>> {};
+	class MyEvent2 : public event<event_handler<MyStateBase, MyEvent2>> {};
+	class MyEvent3 : public event<event_handler<MyStateBase, MyEvent3>> {};
 
 	class MyFsm;
 	class MyStateBase;
-	using FsmBase = fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1>;
+	using FsmBase = fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1, MyEvent2, MyEvent3>;
 	class MyStateBase : public FsmBase
 	{
 		using Super = FsmBase;
@@ -369,6 +371,7 @@ namespace test
 		MyState0(MyFsm& fsm);
 		virtual MyStateBase * on_enter_state() override;
 		virtual MyStateBase * on_event(const MyEvent0&) override;
+		virtual MyStateBase * on_event(const MyEvent2&) override;
 		virtual const char * description() const override { return "MyState0"; }
 		void dump0() const;
 	private:
@@ -382,6 +385,7 @@ namespace test
 		MyState1(MyFsm& fsm);
 		virtual MyStateBase * on_enter_state() override;
 		virtual MyStateBase * on_event(const MyEvent1&) override;
+		virtual MyStateBase * on_event(const MyEvent3&) override;
 		virtual const char * description() const override { return "MyState1"; }
 		// void dump1() const;
 	private:
@@ -448,6 +452,13 @@ namespace test
 	}
 
 	// -----------------------------------------
+	MyStateBase * MyState0::on_event(const MyEvent2& event)
+	{
+		printf("%s::on_event %s\n", description(), event.description());
+		return this;
+	}
+
+	// -----------------------------------------
 	void MyState0::dump0() const
 	{
 		for (int32_t ii = 0; ii < 16; ++ii)
@@ -481,6 +492,13 @@ namespace test
 	{
 		printf("%s::on_event %s\n", description(), event.description());
 		return get_fsm().get_factory().create<MyState0>(get_fsm());
+	}
+
+	// -----------------------------------------
+	MyStateBase * MyState1::on_event(const MyEvent3& event)
+	{
+		printf("%s::on_event %s\n", description(), event.description());
+		return this;
 	}
 
 	// // -----------------------------------------
@@ -526,6 +544,13 @@ namespace test
 						const MyState0& s = static_cast<const MyState0&>(fsm.get_state());
 						s.dump0();
 					}
+
+					{
+						MyEvent2 m;
+						fsm.receive(m);
+					}
+
+					printf("In State: %s\n", fsm.get_state().description());
 
 					{
 						MyEvent0 m;
