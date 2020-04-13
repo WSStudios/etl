@@ -86,14 +86,11 @@ namespace etl
 #endif
   };
 
-  class imessage_router;
-
   //***************************************************************************
-  template <const etl::message_id_t ID_, typename THandler>
+  template <const etl::message_id_t ID_>
   class message : public imessage
   {
   public:
-    using handler_type = THandler;
 
     message()
       : imessage(ID_)
