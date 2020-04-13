@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.5.0)
 project(etl_unit_tests)
 
 set (CMAKE_CXX_STANDARD 14)
+set (CMAKE_BUILD_TYPE Debug)
 
 add_definitions(-DETL_DEBUG)
 
