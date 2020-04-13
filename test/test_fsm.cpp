@@ -43,7 +43,7 @@ constexpr auto to_integral(E e) -> typename std::underlying_type<E>::type
    return static_cast<typename std::underlying_type<E>::type>(e);
 }
 
-namespace new_etl
+namespace wtl
 {
 	template <class F, class T, class = T>
 	struct is_static_castable : std::false_type
@@ -85,10 +85,6 @@ namespace new_etl
 		static constexpr size_t MaxAlignment = MaxAlignmentof<T, Ts...>::value;
 	};
 
-}
-
-namespace etl
-{
 
 	// -----------------------------------------
 	template <typename THandler>
@@ -106,7 +102,7 @@ namespace etl
 	{
 		event_handler()
 		{
-			static_assert(new_etl::is_static_castable<decltype(this),TBase*>::value, "bad event_handler!");
+			static_assert(wtl::is_static_castable<decltype(this),TBase*>::value, "bad event_handler!");
 		}
 
 		virtual TBase * on_event(const TEventType& event)
@@ -133,22 +129,22 @@ namespace etl
 	// -----------------------------------------
 	/// Exception for null state pointer.
 	// -----------------------------------------
-	class fsm_null_state_exception : public etl::fsm_exception
+	class fsm_null_state_exception : public fsm_exception
 	{
 	public:
 
 		fsm_null_state_exception(string_type file_name_, numeric_type line_number_)
-			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:null state", ETL_FILE"A"), file_name_, line_number_)
+			: fsm_exception(ETL_ERROR_TEXT("fsm:null state", ETL_FILE"A"), file_name_, line_number_)
 		{
 		}
 	};
 
-	class fsm_unknown_event_exception : public etl::fsm_exception
+	class fsm_unknown_event_exception : public fsm_exception
 	{
 	public:
 
 		fsm_unknown_event_exception(const char * event_description_)
-			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:unknown event", ETL_FILE"A"), "", 0)
+			: fsm_exception(ETL_ERROR_TEXT("fsm:unknown event", ETL_FILE"A"), "", 0)
 			, event_description(event_description_)
 		{
 		}
@@ -160,12 +156,12 @@ namespace etl
 	// -----------------------------------------
 	/// Exception for invalid state id.
 	// -----------------------------------------
-	class fsm_state_id_exception : public etl::fsm_exception
+	class fsm_state_id_exception : public fsm_exception
 	{
 	public:
 
 		fsm_state_id_exception(string_type file_name_, numeric_type line_number_)
-			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:state id", ETL_FILE"B"), file_name_, line_number_)
+			: fsm_exception(ETL_ERROR_TEXT("fsm:state id", ETL_FILE"B"), file_name_, line_number_)
 		{
 		}
 	};
@@ -173,12 +169,12 @@ namespace etl
 	// -----------------------------------------
 	/// Exception for incompatible state list.
 	// -----------------------------------------
-	class fsm_state_list_exception : public etl::fsm_exception
+	class fsm_state_list_exception : public fsm_exception
 	{
 	public:
 
 		fsm_state_list_exception(string_type file_name_, numeric_type line_number_)
-			: etl::fsm_exception(ETL_ERROR_TEXT("fsm:state list", ETL_FILE"C"), file_name_, line_number_)
+			: fsm_exception(ETL_ERROR_TEXT("fsm:state list", ETL_FILE"C"), file_name_, line_number_)
 		{
 		}
 	};
@@ -208,7 +204,7 @@ namespace etl
 		//*******************************************
 		void transition(TStateType* p_to_state)
 		{
-			ETL_ASSERT((p_to_state != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
+			ETL_ASSERT((p_to_state != nullptr), ETL_ERROR(fsm_null_state_exception));
 
 			// Transition until we don't change states
 			for (TStateType * p_next_state = p_to_state; p_next_state != p_state; )
@@ -219,7 +215,7 @@ namespace etl
 					factory->destroy(p_state);
 				}
 				p_state = p_next_state;
-				ETL_ASSERT((p_state != nullptr), ETL_ERROR(etl::fsm_null_state_exception));
+				ETL_ASSERT((p_state != nullptr), ETL_ERROR(fsm_null_state_exception));
 
 				p_next_state = static_cast<TStateType*>(p_state->on_enter_state());
 			}
@@ -237,7 +233,7 @@ namespace etl
 		//*******************************************
 		const TStateType& get_state() const
 		{
-			ETL_ASSERT(p_state != nullptr, ETL_ERROR(etl::fsm_null_state_exception));
+			ETL_ASSERT(p_state != nullptr, ETL_ERROR(fsm_null_state_exception));
 			return *p_state;
 		}
 
@@ -315,7 +311,7 @@ namespace etl
 		void on_exit_state() override {}  // By default, do nothing.
 		TBaseType* on_event_unknown(const char * desc)
 		{
-			throw etl::fsm_unknown_event_exception(desc);
+			throw fsm_unknown_event_exception(desc);
 			return static_cast<TBaseType*>(this);
 		}
 
@@ -339,15 +335,16 @@ namespace etl
 
 namespace test
 {
+	using namespace wtl;
 
 	// -----------------------------------------
 	class MyStateBase;
-	class MyEvent0 : public etl::event<etl::event_handler<MyStateBase, MyEvent0>> {};
-	class MyEvent1 : public etl::event<etl::event_handler<MyStateBase, MyEvent1>> {};
+	class MyEvent0 : public event<event_handler<MyStateBase, MyEvent0>> {};
+	class MyEvent1 : public event<event_handler<MyStateBase, MyEvent1>> {};
 
 	class MyFsm;
 	class MyStateBase;
-	using FsmBase = etl::fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1>;
+	using FsmBase = fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1>;
 	class MyStateBase : public FsmBase
 	{
 		using Super = FsmBase;
@@ -393,15 +390,15 @@ namespace test
 
 	// -----------------------------------------
 
-	typedef new_etl::MaxTraits<MyState0, MyState1> StateTraits;
+	typedef wtl::MaxTraits<MyState0, MyState1> StateTraits;
 
 	using MyStateFactory =
-		etl::StateFactory<MyFsm,
+		StateFactory<MyFsm,
 						  MyStateBase,
 						  StateTraits::MaxSize,
 						  StateTraits::MaxAlignment>;
 
-	using MyFsmBase = etl::fsm<MyStateFactory, MyStateBase>;
+	using MyFsmBase = fsm<MyStateFactory, MyStateBase>;
 
 	// -----------------------------------------
 	// The Test FSM.
@@ -546,12 +543,12 @@ namespace test
 
 					{
 						MyEvent1 m;
-						CHECK_THROW(fsm.receive(m), etl::fsm_unknown_event_exception);
+						CHECK_THROW(fsm.receive(m), fsm_unknown_event_exception);
 					}
 
 					printf("In State: %s\n", fsm.get_state().description());
 				}
-				// catch (etl::fsm_exception e)
+				// catch (fsm_exception e)
 				// {
 				// 	printf("exception: %s %s:%d\n", e.what(), e.file_name(), e.line_number());
 				// }
