@@ -188,6 +188,7 @@ namespace wtl
 	class fsm
 	{
 		using StateType = TStateType;
+		using StatePtr = TStateType*;
 	public:
 		//*******************************************
 		fsm(TStateFactory* factory_)
@@ -196,18 +197,18 @@ namespace wtl
 		{}
 
 		// start state
-		void start(TStateType * pInitialState)
+		void start(StatePtr pInitialState)
 		{
 			transition(pInitialState);
 		}
 
 		//*******************************************
-		void transition(TStateType* p_to_state)
+		void transition(StatePtr p_to_state)
 		{
 			ETL_ASSERT((p_to_state != nullptr), ETL_ERROR(fsm_null_state_exception));
 
 			// Transition until we don't change states
-			for (TStateType * p_next_state = p_to_state; p_next_state != p_state; )
+			for (StatePtr p_next_state = p_to_state; p_next_state != p_state; )
 			{
 				if (p_state != nullptr)
 				{
@@ -217,7 +218,7 @@ namespace wtl
 				p_state = p_next_state;
 				ETL_ASSERT((p_state != nullptr), ETL_ERROR(fsm_null_state_exception));
 
-				p_next_state = static_cast<TStateType*>(p_state->on_enter_state());
+				p_next_state = static_cast<StatePtr>(p_state->on_enter_state());
 			}
 		}
 
@@ -226,15 +227,15 @@ namespace wtl
 		void receive(const TEvent& event)
 		{
 			using handler_type = typename TEvent::handler_type;
-			TStateType * next_state = static_cast<handler_type*>(p_state)->on_event(event);
+			StatePtr next_state = static_cast<handler_type*>(p_state)->on_event(event);
 			transition(next_state);
 		}
 
 		//*******************************************
-		const TStateType& get_state() const
+		StatePtr get_state() const
 		{
 			ETL_ASSERT(p_state != nullptr, ETL_ERROR(fsm_null_state_exception));
-			return *p_state;
+			return p_state;
 		}
 
 		TStateFactory& get_factory() { return *factory; }
@@ -242,7 +243,7 @@ namespace wtl
 	private:
 
 		TStateFactory* factory;
-		TStateType* p_state;
+		StatePtr p_state;
 	};
 
 	// -----------------------------------------
@@ -343,10 +344,12 @@ namespace test
 	class MyEvent1 : public event<event_handler<MyStateBase, MyEvent1>> {};
 	class MyEvent2 : public event<event_handler<MyStateBase, MyEvent2>> {};
 	class MyEvent3 : public event<event_handler<MyStateBase, MyEvent3>> {};
+	class MyEvent4 : public event<event_handler<MyStateBase, MyEvent4>> {};
+	class MyEvent5 : public event<event_handler<MyStateBase, MyEvent5>> {};
 
 	class MyFsm;
 	class MyStateBase;
-	using FsmBase = fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1, MyEvent2, MyEvent3>;
+	using FsmBase = fsm_state<MyFsm, MyStateBase, MyEvent0, MyEvent1, MyEvent2, MyEvent3, MyEvent4, MyEvent5>;
 	class MyStateBase : public FsmBase
 	{
 		using Super = FsmBase;
@@ -371,7 +374,6 @@ namespace test
 		MyState0(MyFsm& fsm);
 		virtual MyStateBase * on_enter_state() override;
 		virtual MyStateBase * on_event(const MyEvent0&) override;
-		virtual MyStateBase * on_event(const MyEvent2&) override;
 		virtual const char * description() const override { return "MyState0"; }
 		void dump0() const;
 	private:
@@ -452,11 +454,11 @@ namespace test
 	}
 
 	// -----------------------------------------
-	MyStateBase * MyState0::on_event(const MyEvent2& event)
-	{
-		printf("%s::on_event %s\n", description(), event.description());
-		return this;
-	}
+	// MyStateBase * MyState0::on_event(const MyEvent2& event)
+	// {
+	// 	printf("%s::on_event %s\n", description(), event.description());
+	// 	return this;
+	// }
 
 	// -----------------------------------------
 	void MyState0::dump0() const
@@ -538,40 +540,40 @@ namespace test
 
 					fsm.start(Factory.create<MyState0>(fsm));
 
-					printf("In State: %s\n", fsm.get_state().description());
+					printf("In State: %s\n", fsm.get_state()->description());
 
 					{
-						const MyState0& s = static_cast<const MyState0&>(fsm.get_state());
-						s.dump0();
+						const MyState0* s = static_cast<const MyState0*>(fsm.get_state());
+						s->dump0();
 					}
 
-					{
-						MyEvent2 m;
-						fsm.receive(m);
-					}
+					// {
+					// 	MyEvent2 m;
+					// 	fsm.receive(m);
+					// }
 
-					printf("In State: %s\n", fsm.get_state().description());
+					printf("In State: %s\n", fsm.get_state()->description());
 
 					{
 						MyEvent0 m;
 						fsm.receive(m);
 					}
 
-					printf("In State: %s\n", fsm.get_state().description());
+					printf("In State: %s\n", fsm.get_state()->description());
 
 					{
 						MyEvent1 m;
 						fsm.receive(m);
 					}
 
-					printf("In State: %s\n", fsm.get_state().description());
+					printf("In State: %s\n", fsm.get_state()->description());
 
 					{
 						MyEvent1 m;
 						CHECK_THROW(fsm.receive(m), fsm_unknown_event_exception);
 					}
 
-					printf("In State: %s\n", fsm.get_state().description());
+					printf("In State: %s\n", fsm.get_state()->description());
 				}
 				// catch (fsm_exception e)
 				// {
@@ -592,7 +594,7 @@ namespace test
 
 				// // Now in Idle state.
 				// //CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state_id()));
-				// //CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state().get_state_id()));
+				// //CHECK_EQUAL(to_integral(StateId::IDLE), to_integral(fsm.get_state()->get_state_id()));
 
 				// CHECK_EQUAL(false, fsm.isLampOn);
 				// CHECK_EQUAL(0, fsm.speed);
